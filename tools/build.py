@@ -121,6 +121,7 @@ def build(folder, out_path):
         "upd": now.strftime("%d.%m.%Y, %H:%M"), "from": today, "to": end, "ev": ev,
         "closed": sorted(c for c in closed if today <= c <= end),
         "pause": sorted(k for k, v in weeks_doc.items() if v == "pause"),
+        "quiet": sorted(k for k, v in weeks_doc.items() if v == "ruhig"),   # ruhige Wochen: extern „nicht verfügbar“
         "feier": {k: v for k, v in FEIER.items() if today <= k <= end},
         "ferien": [f for f in FERIEN if f[1] >= today and f[0] <= end],
         "themes": THEMES, "contact": CONTACT, "eventsUrl": EVENTS_URL, "impressum": IMPRESSUM_URL, "datenschutz": DATENSCHUTZ_URL,

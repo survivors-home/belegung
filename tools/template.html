@@ -8,10 +8,10 @@
 <style>
 :root{
   --violet:#662483; --violet-2:#AC3F90; --ink:#3C3C3B; --muted:#6f6875; --paper:#ffffff; --surface:#f6f3f8; --line:#e2dbe8;
-  --hol:#fbe9ea; --hol-ink:#c0262d; --pause:#d8d3dc; --fer:rgba(172,63,144,.12); --r:6px;
+  --hol:#fbe9ea; --hol-ink:#c0262d; --pause:#d8d3dc; --quiet:#ecebef; --fer:rgba(172,63,144,.12); --r:6px;
   --f:"Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif; --mono:ui-monospace, Menlo, Consolas, monospace;
 }
-@media (prefers-color-scheme: dark){ :root{ --violet:#c48ae0; --violet-2:#e27bc8; --ink:#ece8ef; --muted:#a69eae; --paper:#161319; --surface:#201c24; --line:#3a3341; --hol:#3a1c1f; --hol-ink:#ff7b7f; --pause:#2b282f; --fer:rgba(226,123,200,.14); color-scheme:dark } }
+@media (prefers-color-scheme: dark){ :root{ --violet:#c48ae0; --violet-2:#e27bc8; --ink:#ece8ef; --muted:#a69eae; --paper:#161319; --surface:#201c24; --line:#3a3341; --hol:#3a1c1f; --hol-ink:#ff7b7f; --pause:#2b282f; --quiet:#25222a; --fer:rgba(226,123,200,.14); color-scheme:dark } }
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--f);font-size:16px;line-height:1.45}
 button,input{font:inherit;color:inherit}
@@ -43,6 +43,8 @@ main{max-width:1200px;margin:0 auto;padding:14px 16px 40px}
 .day.out{opacity:.4}.day.past{opacity:.35;cursor:default}
 .day.fer{background:linear-gradient(var(--fer),var(--fer)),var(--paper)}
 .day.hol{background:var(--hol)}.day.pause{background:var(--pause)}
+.day.quiet{background:var(--quiet);color:var(--muted)}.day.quiet .tag{color:var(--muted)}.day.quiet .bars{opacity:.55}
+.wd.quiet{background:var(--quiet)}.wd.quiet .tl,.wd.quiet .axis{opacity:.55}.chip.quiet{color:var(--muted)}
 .dn{font-family:var(--mono);font-size:.8rem}
 .tag{font-size:.66rem;color:var(--hol-ink);line-height:1.15;overflow:hidden;text-overflow:ellipsis}
 .day.pause .tag{color:var(--ink)}
@@ -98,13 +100,13 @@ const T0 = 8*60, T1 = 22*60, TS = T1 - T0;
 const pos = (a, b) => { const l = Math.max(0,(a-T0)/TS*100), r = Math.min(100,(b-T0)/TS*100); return `left:${l.toFixed(2)}%;width:${Math.max(.8, r-l).toFixed(2)}%`; };
 const col = x => x.m ? "#8A8590" : TC[DATA.themes[x.t]][0], dark = x => !x.m && TC[DATA.themes[x.t]][1], thName = x => x.m ? "belegt" : DATA.themes[x.t];
 const ferien = d => (DATA.ferien.find(f => f[0] <= d && d <= f[1]) || [])[2] || "";
-function info(d){ const o = []; if (DATA.feier[d]) o.push(["hol", DATA.feier[d]]); if (DATA.closed.includes(d)) o.push(["hol","geschlossen"]); if (DATA.pause.includes(wkKey(d))) o.push(["pause","Programmpause"]); return o; }
+function info(d){ const o = []; if (DATA.feier[d]) o.push(["hol", DATA.feier[d]]); if (DATA.closed.includes(d)) o.push(["hol","geschlossen"]); if ((DATA.quiet||[]).includes(wkKey(d))) o.push(["quiet","nicht verfügbar"]); if (DATA.pause.includes(wkKey(d))) o.push(["pause","Programmpause"]); return o; }
 const title = x => [fmt(x.d)+" "+WD[wdOf(x.d)], x.n || thName(x), x.f ? "fest gebucht" : "vorgemerkt", x.g ? "ganztägig" : x.z ? "Uhrzeit noch offen" : "Haus belegt "+m2t(x.a)+"–"+m2t(x.b)+" Uhr (Veranstaltung "+m2t(x.s)+"–"+m2t(x.e)+")"].join(" · ");
 const UI = {view:"monat", month:null, week:null};
 const byD = {}; (DATA ? DATA.ev : []).forEach(x => (byD[x.d] = byD[x.d] || []).push(x));
 function legend(){
   const th = DATA.themes.filter(k => k !== "Sonstige").map(k => `<span><i class="sw" style="background:${TC[k][0]}"></i>${esc(k)}</span>`).join("");
-  return `<div class="legend"><div><b>Zustand</b><span><i class="sw f" style="--c:var(--violet)"></i>fest gebucht</span><span><i class="sw v" style="--c:var(--violet)"></i>vorgemerkt (kann sich noch ändern)</span><span><i class="sw" style="background:#8A8590"></i>belegt (ohne Themenbereich)</span><span><i class="sw" style="background:var(--hol);border:1px solid var(--hol-ink)"></i>Feiertag / geschlossen</span><span><i class="sw" style="background:var(--pause)"></i>Programmpause</span><span><i class="sw" style="background:var(--fer);border:1px solid var(--line)"></i>Schulferien Berlin</span></div><div><b>Themenbereiche</b>${th}</div></div>`;
+  return `<div class="legend"><div><b>Zustand</b><span><i class="sw f" style="--c:var(--violet)"></i>fest gebucht</span><span><i class="sw v" style="--c:var(--violet)"></i>vorgemerkt (kann sich noch ändern)</span><span><i class="sw" style="background:#8A8590"></i>belegt (ohne Themenbereich)</span><span><i class="sw" style="background:var(--hol);border:1px solid var(--hol-ink)"></i>Feiertag / geschlossen</span><span><i class="sw" style="background:var(--pause)"></i>Programmpause</span><span><i class="sw" style="background:var(--quiet);border:1px solid var(--line)"></i>nicht verfügbar</span><span><i class="sw" style="background:var(--fer);border:1px solid var(--line)"></i>Schulferien Berlin</span></div><div><b>Themenbereiche</b>${th}</div></div>`;
 }
 function vMonth(){
   const m = UI.month, first = m+"-01", start = monOf(first), nd = new Date(Date.UTC(+m.slice(0,4), +m.slice(5,7), 0)).getUTCDate(), last = m+"-"+pad(nd);
@@ -112,7 +114,7 @@ function vMonth(){
   for (let n = D(start); n <= D(last) || (n - D(start)) % 7; n++){
     const d = S_(n), inM = d.slice(0,7) === m, past = d < DATA.from, inf = info(d), fe = ferien(d), evs = byD[d] || [];
     const bars = evs.map(x => `<i class="${x.f ? "f" : "v"}" style="--c:${col(x)};${x.a == null ? "left:0;width:100%" : pos(x.a, x.b)}" title="${esc(title(x))}"></i>`).join("");
-    const cls = `day${inM ? "" : " out"}${past ? " past" : ""}${inf.some(i => i[0]==="hol") ? " hol" : inf.some(i => i[0]==="pause") ? " pause" : ""}${fe ? " fer" : ""}`;
+    const cls = `day${inM ? "" : " out"}${past ? " past" : ""}${inf.some(i => i[0]==="hol") ? " hol" : inf.some(i => i[0]==="pause") ? " pause" : inf.some(i => i[0]==="quiet") ? " quiet" : ""}${fe ? " fer" : ""}`;
     h += `<button class="${cls}" ${past ? "disabled" : `data-go="${d}"`} title="${esc(fmt(d)+" "+WD[wdOf(d)]+(fe ? " · "+fe : "")+inf.map(i => " · "+i[1]).join("")+(evs.length ? " · "+evs.length+" belegt" : " · frei"))}"><span class="dn">${+d.slice(8)}</span>${inf.length ? `<span class="tag">${esc(inf.map(i => i[1]).join(" · "))}</span>` : ""}<span class="bars">${bars}</span>${evs.length ? `<span class="cnt">${evs.length}</span>` : ""}</button>`;
   }
   return `<div class="month">${h}</div><p class="stand">Balken: belegte Zeit am Tag (8–22 Uhr). Tag antippen für die Wochenansicht.</p>`;
@@ -124,8 +126,8 @@ function vWeek(){
     const rows = evs.filter(x => x.a != null).map(x => `<div class="tl"><i class="o" style="--c:${col(x)};${pos(x.a, x.b)}" title="${esc(title(x))}"></i><i class="c ${x.f ? "f" : "v"}${dark(x) ? " dk" : ""}" style="--c:${col(x)};${pos(x.s, x.e)}" title="${esc(title(x))}">${x.e - x.s >= 75 ? `<span>${m2t(x.a)}–${m2t(x.b)}</span>` : ""}</i></div>`).join("");
     const open = evs.filter(x => x.a == null).map(x => `<div class="open">${esc(thName(x))} · Uhrzeit noch offen · ${x.f ? "fest" : "vorgemerkt"}</div>`).join("");
     const pub = evs.filter(x => x.n).map(x => `<div class="pub">${x.g ? "ganztägig" : x.z ? "" : m2t(x.s)+" Uhr: "}${DATA.eventsUrl ? `<a href="${esc(DATA.eventsUrl)}" target="_blank" rel="noopener">${esc(x.n)}</a>` : `<b>${esc(x.n)}</b>`}</div>`).join("");
-    const cls = `wd${inf.some(i => i[0]==="hol") ? " hol" : inf.some(i => i[0]==="pause") ? " pause" : ""}`;
-    return `<section class="${cls}"><h3>${WD[wdOf(d)]} ${fmtY(d)}${fe ? `<span class="chip">${esc(fe)}</span>` : ""}${inf.map(i => `<span class="chip ${i[0]==="hol" ? "hol" : ""}">${esc(i[1])}</span>`).join("")}</h3>${past ? `<div class="free">vergangen</div>` : evs.length ? `<div class="axis">${ax.join("")}</div>${rows}${open}${pub}` : `<div class="free">frei</div>`}</section>`;
+    const cls = `wd${inf.some(i => i[0]==="hol") ? " hol" : inf.some(i => i[0]==="pause") ? " pause" : inf.some(i => i[0]==="quiet") ? " quiet" : ""}`;
+    return `<section class="${cls}"><h3>${WD[wdOf(d)]} ${fmtY(d)}${fe ? `<span class="chip">${esc(fe)}</span>` : ""}${inf.map(i => `<span class="chip ${i[0]}">${esc(i[1])}</span>`).join("")}</h3>${past ? `<div class="free">vergangen</div>` : evs.length ? `<div class="axis">${ax.join("")}</div>${rows}${open}${pub}` : `<div class="free">${inf.some(i => i[0]==="quiet") ? "nicht verfügbar" : "frei"}</div>`}</section>`;
   }).join("") + `</div>`;
 }
 function render(){
