@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>SURVIVORS HOME – Belegungsplan</title>
+<style>
+:root{
+  --violet:#662483; --violet-2:#AC3F90; --ink:#3C3C3B; --muted:#6f6875; --paper:#ffffff; --surface:#f6f3f8; --line:#e2dbe8;
+  --hol:#fbe9ea; --hol-ink:#c0262d; --pause:#d8d3dc; --fer:rgba(172,63,144,.12); --r:6px;
+  --f:"Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif; --mono:ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){ :root{ --violet:#c48ae0; --violet-2:#e27bc8; --ink:#ece8ef; --muted:#a69eae; --paper:#161319; --surface:#201c24; --line:#3a3341; --hol:#3a1c1f; --hol-ink:#ff7b7f; --pause:#2b282f; --fer:rgba(226,123,200,.14); color-scheme:dark } }
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--f);font-size:16px;line-height:1.45}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 16px;border-bottom:1px solid var(--line)}
+.logo{display:block;width:150px;height:auto;background:#fff;padding:8px 10px;border-radius:4px}
+header h1{margin:0;font-size:1.25rem;font-weight:700;color:var(--ink)}
+header h1 small{display:block;font-size:.8rem;font-weight:400;color:var(--muted)}
+main{max-width:1200px;margin:0 auto;padding:14px 16px 40px}
+.bar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;margin-bottom:10px}
+.nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.mv{display:flex;gap:8px;align-items:center;flex-wrap:nowrap}
+.btn{border:1px solid var(--line);background:var(--paper);padding:8px 14px;border-radius:var(--r);cursor:pointer;font-weight:700;font-size:.95rem}
+.btn[disabled]{opacity:.35;cursor:default}
+.seg{display:inline-flex}.seg .btn{border-radius:0}.seg .btn:first-child{border-radius:var(--r) 0 0 var(--r)}.seg .btn:last-child{border-radius:0 var(--r) var(--r) 0;margin-left:-1px}
+.seg .btn[aria-pressed="true"]{background:var(--violet);color:#fff;border-color:var(--violet)}
+.lab{font-weight:700;font-size:1.1rem;min-width:11ch;text-align:center}
+.stand{font-size:.82rem;color:var(--muted)}
+.intro{margin:0 0 12px;font-size:.9rem;color:var(--muted);max-width:75ch}
+.sw{width:12px;height:12px;border-radius:3px;display:inline-block;flex:none}
+.f{background:var(--c)}
+.v{background:repeating-linear-gradient(135deg,var(--c) 0 3px,color-mix(in srgb,var(--c) 28%,var(--paper)) 3px 7px)}
+.sw.f,.sw.v{border:1px solid var(--c)}
+/* Monat */
+.month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.wh{font-size:.75rem;font-weight:700;color:var(--muted);text-align:center}
+.day{position:relative;display:flex;flex-direction:column;gap:3px;min-height:92px;padding:5px 6px;border:1px solid var(--line);border-radius:var(--r);background:var(--paper);text-align:left;cursor:pointer;min-width:0}
+.day:hover{border-color:var(--violet)}
+.day.out{opacity:.4}.day.past{opacity:.35;cursor:default}
+.day.fer{background:linear-gradient(var(--fer),var(--fer)),var(--paper)}
+.day.hol{background:var(--hol)}.day.pause{background:var(--pause)}
+.dn{font-family:var(--mono);font-size:.8rem}
+.tag{font-size:.66rem;color:var(--hol-ink);line-height:1.15;overflow:hidden;text-overflow:ellipsis}
+.day.pause .tag{color:var(--ink)}
+.bars{display:flex;flex-direction:column;gap:2px;margin-top:auto}
+.bars i{position:relative;display:block;height:6px;border-radius:2px}
+.cnt{position:absolute;top:5px;right:7px;font-size:.66rem;color:var(--muted)}
+/* Woche */
+.week{display:flex;flex-direction:column;gap:8px}
+.wd{border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;background:var(--paper)}
+.wd.hol{background:var(--hol)}.wd.pause{background:var(--pause)}
+.wd h3{margin:0 0 6px;font-size:.95rem;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.chip{font-size:.72rem;font-weight:700;padding:1px 7px;border-radius:4px;background:var(--surface)}
+.chip.hol{color:var(--hol-ink);background:transparent;border:1px solid var(--hol-ink)}
+.axis,.tl{position:relative;margin-left:0}
+.axis{height:16px}
+.axis span{position:absolute;transform:translateX(-50%);font-family:var(--mono);font-size:.68rem;color:var(--muted)}
+.tl{height:22px;border-radius:3px;background:linear-gradient(90deg,var(--line) 1px,transparent 1px) 0 0/calc(100%/7) 100%,var(--surface);margin-bottom:3px}
+.tl .o{position:absolute;top:2px;bottom:2px;border-radius:3px;background:color-mix(in srgb,var(--c) 22%,transparent);border:1px solid color-mix(in srgb,var(--c) 55%,transparent)}
+.tl .c{position:absolute;top:2px;bottom:2px;border-radius:3px;display:flex;align-items:center;overflow:hidden;white-space:nowrap;font-size:.7rem;padding:0 4px;color:#fff}
+.tl .c.dk{color:#1a1a1a}
+.tl .c.v{color:var(--ink)}
+.tl .c span{font-family:var(--mono)}
+.tl .c.v span{text-shadow:0 0 2px var(--paper),0 0 3px var(--paper),0 0 4px var(--paper)}
+.free{font-size:.85rem;color:var(--muted)}
+.pub{font-size:.85rem;margin-top:4px}
+.pub a{color:var(--violet);font-weight:700}
+.open{font-size:.8rem;color:var(--muted);margin-top:2px}
+/* Legende, Fuß */
+.legend{display:flex;flex-direction:column;gap:6px;font-size:.8rem;margin:14px 0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+.legend>div{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+footer{font-size:.82rem;color:var(--muted);border-top:1px solid var(--line);padding-top:10px;display:flex;flex-wrap:wrap;gap:6px 18px}
+footer a{color:var(--violet)}
+@media (max-width:640px){ .day{min-height:62px;padding:3px} .tag{display:none} .tl .c span{display:none} header{flex-wrap:nowrap;gap:12px;padding:10px 12px} .logo{width:104px;padding:5px 7px} header h1{font-size:1.05rem} header h1 small{font-size:.72rem} main{padding:10px 12px 30px} .mv{width:100%} .mv .lab{flex:1;font-size:1rem;min-width:0} .btn{padding:8px 12px} }
+</style>
+</head>
+<body>
+<header><!--LOGO--><h1>Belegungsplan<small>Belegte und freie Zeiten im SURVIVORS HOME</small></h1></header>
+<main id="app"><p>Der Belegungsplan wird geladen …</p></main>
+<noscript><p style="padding:16px">Bitte JavaScript aktivieren, um den Belegungsplan zu sehen.</p></noscript>
+<script>
+"use strict";
+const DATA = /*DATA*/null;
+const TC = {"Angehörige":["#3D01A4",0],"Beruf & Soziales":["#B7E710",1],"Bewegung":["#039DCE",0],"Ernährung":["#66B032",0],"Film & Foto":["#0247FE",0],"Forschung & Wissen":["#006707",0],"Geist & Seele":["#F31600",0],"Kreativität":["#FB9902",0],"Kunst & Kultur":["#A7194B",0],"Leben & Erfahrung":["#FFE200",1],"Musik":["#FF7298",0],"Themenoffen":["#A6489B",0],"Unterhaltung":["#FABC02",1],"Sonstige":["#8A8590",0]};
+const MONTHS = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"], WD = ["So","Mo","Di","Mi","Do","Fr","Sa"];
+const pad = n => String(n).padStart(2,"0"), D = s => Date.UTC(+s.slice(0,4), +s.slice(5,7)-1, +s.slice(8,10)) / 864e5, S_ = n => new Date(n*864e5).toISOString().slice(0,10);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const m2t = m => pad(Math.floor(m/60)) + ":" + pad(m%60), fmt = s => s.slice(8,10)+"."+s.slice(5,7)+".", fmtY = s => fmt(s)+s.slice(0,4);
+const wdOf = s => new Date(D(s)*864e5).getUTCDay(), monOf = s => S_(D(s) - (wdOf(s)+6)%7);
+function isoWeek(s){ const n = D(s), th = n - (wdOf(s)+6)%7 + 3, y = new Date(th*864e5).getUTCFullYear(), j = D(y+"-01-04"), ft = j - (new Date(j*864e5).getUTCDay()+6)%7 + 3; return [y, 1 + Math.round((th-ft)/7)]; }
+const wkKey = s => { const [y,w] = isoWeek(s); return y+"-W"+pad(w); };
+const T0 = 8*60, T1 = 22*60, TS = T1 - T0;
+const pos = (a, b) => { const l = Math.max(0,(a-T0)/TS*100), r = Math.min(100,(b-T0)/TS*100); return `left:${l.toFixed(2)}%;width:${Math.max(.8, r-l).toFixed(2)}%`; };
+const col = x => x.m ? "#8A8590" : TC[DATA.themes[x.t]][0], dark = x => !x.m && TC[DATA.themes[x.t]][1], thName = x => x.m ? "belegt" : DATA.themes[x.t];
+const ferien = d => (DATA.ferien.find(f => f[0] <= d && d <= f[1]) || [])[2] || "";
+function info(d){ const o = []; if (DATA.feier[d]) o.push(["hol", DATA.feier[d]]); if (DATA.closed.includes(d)) o.push(["hol","geschlossen"]); if (DATA.pause.includes(wkKey(d))) o.push(["pause","Programmpause"]); return o; }
+const title = x => [fmt(x.d)+" "+WD[wdOf(x.d)], x.n || thName(x), x.f ? "fest gebucht" : "vorgemerkt", x.g ? "ganztägig" : x.z ? "Uhrzeit noch offen" : "Haus belegt "+m2t(x.a)+"–"+m2t(x.b)+" Uhr (Veranstaltung "+m2t(x.s)+"–"+m2t(x.e)+")"].join(" · ");
+const UI = {view:"monat", month:null, week:null};
+const byD = {}; (DATA ? DATA.ev : []).forEach(x => (byD[x.d] = byD[x.d] || []).push(x));
+function legend(){
+  const th = DATA.themes.filter(k => k !== "Sonstige").map(k => `<span><i class="sw" style="background:${TC[k][0]}"></i>${esc(k)}</span>`).join("");
+  return `<div class="legend"><div><b>Zustand</b><span><i class="sw f" style="--c:var(--violet)"></i>fest gebucht</span><span><i class="sw v" style="--c:var(--violet)"></i>vorgemerkt (kann sich noch ändern)</span><span><i class="sw" style="background:#8A8590"></i>belegt (ohne Themenbereich)</span><span><i class="sw" style="background:var(--hol);border:1px solid var(--hol-ink)"></i>Feiertag / geschlossen</span><span><i class="sw" style="background:var(--pause)"></i>Programmpause</span><span><i class="sw" style="background:var(--fer);border:1px solid var(--line)"></i>Schulferien Berlin</span></div><div><b>Themenbereiche</b>${th}</div></div>`;
+}
+function vMonth(){
+  const m = UI.month, first = m+"-01", start = monOf(first), nd = new Date(Date.UTC(+m.slice(0,4), +m.slice(5,7), 0)).getUTCDate(), last = m+"-"+pad(nd);
+  let h = ["Mo","Di","Mi","Do","Fr","Sa","So"].map(w => `<div class="wh">${w}</div>`).join("");
+  for (let n = D(start); n <= D(last) || (n - D(start)) % 7; n++){
+    const d = S_(n), inM = d.slice(0,7) === m, past = d < DATA.from, inf = info(d), fe = ferien(d), evs = byD[d] || [];
+    const bars = evs.map(x => `<i class="${x.f ? "f" : "v"}" style="--c:${col(x)};${x.a == null ? "left:0;width:100%" : pos(x.a, x.b)}" title="${esc(title(x))}"></i>`).join("");
+    const cls = `day${inM ? "" : " out"}${past ? " past" : ""}${inf.some(i => i[0]==="hol") ? " hol" : inf.some(i => i[0]==="pause") ? " pause" : ""}${fe ? " fer" : ""}`;
+    h += `<button class="${cls}" ${past ? "disabled" : `data-go="${d}"`} title="${esc(fmt(d)+" "+WD[wdOf(d)]+(fe ? " · "+fe : "")+inf.map(i => " · "+i[1]).join("")+(evs.length ? " · "+evs.length+" belegt" : " · frei"))}"><span class="dn">${+d.slice(8)}</span>${inf.length ? `<span class="tag">${esc(inf.map(i => i[1]).join(" · "))}</span>` : ""}<span class="bars">${bars}</span>${evs.length ? `<span class="cnt">${evs.length}</span>` : ""}</button>`;
+  }
+  return `<div class="month">${h}</div><p class="stand">Balken: belegte Zeit am Tag (8–22 Uhr). Tag antippen für die Wochenansicht.</p>`;
+}
+function vWeek(){
+  const ax = []; for (let h = 8; h <= 22; h += 2) ax.push(`<span style="left:${((h*60-T0)/TS*100).toFixed(2)}%">${h}</span>`);
+  return `<div class="week">` + [...Array(7)].map((_, i) => S_(D(UI.week)+i)).map(d => {
+    const evs = byD[d] || [], inf = info(d), fe = ferien(d), past = d < DATA.from;
+    const rows = evs.filter(x => x.a != null).map(x => `<div class="tl"><i class="o" style="--c:${col(x)};${pos(x.a, x.b)}" title="${esc(title(x))}"></i><i class="c ${x.f ? "f" : "v"}${dark(x) ? " dk" : ""}" style="--c:${col(x)};${pos(x.s, x.e)}" title="${esc(title(x))}">${x.e - x.s >= 75 ? `<span>${m2t(x.a)}–${m2t(x.b)}</span>` : ""}</i></div>`).join("");
+    const open = evs.filter(x => x.a == null).map(x => `<div class="open">${esc(thName(x))} · Uhrzeit noch offen · ${x.f ? "fest" : "vorgemerkt"}</div>`).join("");
+    const pub = evs.filter(x => x.n).map(x => `<div class="pub">${x.g ? "ganztägig" : x.z ? "" : m2t(x.s)+" Uhr: "}${DATA.eventsUrl ? `<a href="${esc(DATA.eventsUrl)}" target="_blank" rel="noopener">${esc(x.n)}</a>` : `<b>${esc(x.n)}</b>`}</div>`).join("");
+    const cls = `wd${inf.some(i => i[0]==="hol") ? " hol" : inf.some(i => i[0]==="pause") ? " pause" : ""}`;
+    return `<section class="${cls}"><h3>${WD[wdOf(d)]} ${fmtY(d)}${fe ? `<span class="chip">${esc(fe)}</span>` : ""}${inf.map(i => `<span class="chip ${i[0]==="hol" ? "hol" : ""}">${esc(i[1])}</span>`).join("")}</h3>${past ? `<div class="free">vergangen</div>` : evs.length ? `<div class="axis">${ax.join("")}</div>${rows}${open}${pub}` : `<div class="free">frei</div>`}</section>`;
+  }).join("") + `</div>`;
+}
+function render(){
+  const app = document.getElementById("app");
+  if (!DATA){ app.innerHTML = "<p>Keine Daten vorhanden.</p>"; return; }
+  const lo = DATA.from.slice(0,7), hi = DATA.to.slice(0,7);
+  if (!UI.month) UI.month = lo; if (!UI.week) UI.week = monOf(DATA.from);
+  const wLo = monOf(DATA.from), wHi = monOf(DATA.to);
+  const nav = UI.view === "monat"
+    ? `<span class="mv"><button class="btn" data-m="-1" aria-label="Voriger Monat" ${UI.month <= lo ? "disabled" : ""}>←</button><span class="lab">${MONTHS[+UI.month.slice(5)-1]} ${UI.month.slice(0,4)}</span><button class="btn" data-m="1" aria-label="Nächster Monat" ${UI.month >= hi ? "disabled" : ""}>→</button></span>`
+    : `<span class="mv"><button class="btn" data-w="-7" aria-label="Vorige Woche" ${UI.week <= wLo ? "disabled" : ""}>←</button><span class="lab">KW ${isoWeek(UI.week)[1]} · ${fmt(UI.week)}–${fmtY(S_(D(UI.week)+6))}</span><button class="btn" data-w="7" aria-label="Nächste Woche" ${UI.week >= wHi ? "disabled" : ""}>→</button></span>`;
+  const contact = DATA.contact ? `Anfragen zu freien Terminen: <a href="mailto:${esc(DATA.contact)}">${esc(DATA.contact)}</a>` : "";
+  const foot = [contact, "Angaben ohne Gewähr", DATA.impressum ? `<a href="${esc(DATA.impressum)}" target="_blank" rel="noopener">Impressum</a>` : "", DATA.datenschutz ? `<a href="${esc(DATA.datenschutz)}" target="_blank" rel="noopener">Datenschutz</a>` : ""].filter(Boolean).map(x => `<span>${x}</span>`).join("");
+  app.innerHTML = `<div class="bar"><div class="nav"><span class="seg" role="group" aria-label="Ansicht"><button class="btn" data-v="monat" aria-pressed="${UI.view==="monat"}">Monat</button><button class="btn" data-v="woche" aria-pressed="${UI.view==="woche"}">Woche</button></span>${nav}</div><span class="stand">Stand: ${esc(DATA.upd)} Uhr · wird täglich aktualisiert</span></div>
+  <p class="intro">Belegte Zeiten im Haus, inklusive Vorbereitung und Nachlauf. Freie Zeiten sind verfügbar. Vorgemerkte Termine sind noch nicht endgültig.</p>
+  ${UI.view === "monat" ? vMonth() : vWeek()}${legend()}<footer>${foot}</footer>`;
+}
+document.addEventListener("click", ev => {
+  const t = ev.target.closest("[data-v],[data-m],[data-w],[data-go]"); if (!t || t.disabled) return; const ds = t.dataset;
+  if (ds.v){ UI.view = ds.v; if (ds.v === "woche"){ const f = UI.month+"-01"; UI.week = monOf(f < DATA.from ? DATA.from : f); } }
+  if (ds.m){ const [y, m] = UI.month.split("-").map(Number); UI.month = new Date(Date.UTC(y, m-1+(+ds.m), 1)).toISOString().slice(0,7); }
+  if (ds.w){ UI.week = S_(D(UI.week)+(+ds.w)); UI.month = S_(D(UI.week)+3).slice(0,7); }
+  if (ds.go){ UI.week = monOf(ds.go); UI.view = "woche"; }
+  render();
+});
+render();
+</script>
+</body>
+</html>
