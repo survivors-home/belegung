@@ -233,6 +233,9 @@ table.list{border-collapse:collapse;width:100%;font-size:.88rem}
 .iitem .what{min-width:0}
 .iitem .what b{font-weight:700}
 .iitem .what div{color:var(--muted);font-size:.85rem}
+.iitem .prev{color:var(--ink);text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:2px}
+.iitem .prev:hover{color:var(--violet);text-decoration-color:var(--violet)}
+.iitem .prsep{color:var(--violet);font-weight:700;padding-inline:4px}
 
 /* Schublade */
 [hidden]{display:none!important}
@@ -288,7 +291,8 @@ table.list{border-collapse:collapse;width:100%;font-size:.88rem}
 .wgrid .blk{font-size:.62rem;line-height:1.25;padding:2px 4px;top:3px;bottom:3px;white-space:nowrap;text-overflow:ellipsis;display:block;overflow:hidden}
 .wgrid .blk small{display:block;margin:0;font-size:.56rem;white-space:nowrap}
 .wgrid .ci{top:5px;bottom:5px;padding:0}
-.zone{position:absolute;top:1px;bottom:1px;z-index:5;cursor:help;background:repeating-linear-gradient(135deg,rgba(255,92,92,.55) 0 4px,rgba(255,255,255,.55) 4px 8px)}
+/* z-index 6 + Reihenfolge nach den Blöcken: Fehlerstelle liegt auch über dem geöffneten (markierten) Termin */
+.zone{position:absolute;top:1px;bottom:1px;z-index:6;cursor:help;background:repeating-linear-gradient(135deg,rgba(255,92,92,.55) 0 4px,rgba(255,255,255,.55) 4px 8px)}
 .zone::after{content:"";position:absolute;inset:0;pointer-events:none;background:var(--ants);background-size:8px 2px,8px 2px,2px 8px,2px 8px;background-repeat:repeat-x,repeat-x,repeat-y,repeat-y;background-position:0 0,0 100%,0 0,100% 0;animation:ants .5s linear infinite}
 @media (prefers-reduced-motion: reduce){ .zone::after{animation:none} }
 .ci.run{border-left:0;background:repeating-linear-gradient(90deg,var(--surface-2) 0 6px,transparent 6px 9px);opacity:.9}
@@ -422,6 +426,16 @@ h3.sh{font-family:var(--f-display);font-size:1rem;margin:18px 0 8px;color:var(--
 .form label.off{opacity:.45}
 .sec.onl::after{content:"Online – Raum- und Ablaufangaben im Haus entfallen";display:block;font-size:.75rem;color:var(--muted);margin-top:8px}
 /* Anfragen */
+.rlink{cursor:pointer;color:var(--violet)}
+#sentask{position:fixed;inset:0;z-index:320;display:flex;align-items:center;justify-content:center} #sentask[hidden]{display:none}
+#sentask .sa-bg{position:absolute;inset:0;background:rgba(20,10,30,.45)}
+#sentask .sa-box{position:relative;background:var(--paper);color:var(--ink);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.25);padding:20px 24px;width:min(520px,calc(100vw - 32px));border-top:6px solid var(--violet)}
+#sentask h3{margin:0 0 10px;font-family:var(--f-display);color:var(--violet);font-size:1.15rem} #sentask p{margin:0 0 10px} #sentask .sa-act{display:flex;gap:10px;margin-top:14px}
+.pcell{cursor:pointer} .pcell:hover{background:var(--surface)} .pcell:hover .rlink{text-decoration:underline}
+.ptab col.c-p{width:16%} .ptab col.c-k{width:17%}
+.ccell{overflow-wrap:anywhere} a.clink{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:2px} a.clink:hover{color:var(--violet);text-decoration-color:var(--violet)} a.clink[href^="tel:"]{white-space:nowrap}
+/* Personen-Dialog groß: zwei Spalten, Abschnitte über die volle Breite */
+@media (min-width:1400px){ body.dwide.dref #f.form{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:none} body.dwide.dref #f>.sec.full,body.dwide.dref #f>.full{grid-column:1/-1} body.dwide.dref #f .sec .form{grid-template-columns:repeat(2,minmax(0,1fr))} }
 .rtab td{vertical-align:top}
 .ract{display:flex;flex-wrap:wrap;gap:4px}
 .ract .btn.sm{margin-left:0}
@@ -712,9 +726,7 @@ body.team [data-mobon]{display:none!important}
       <button data-view="reihen">Reihen</button>
       <button data-view="referenten">Referenten</button>
       <button data-view="abwesend">Abwesenheiten</button>
-      <button data-view="anfragen">Anfragen</button>
       <button data-view="sicherung">Sicherung</button>
-      <button data-mobon="1" class="mobbtn" title="Mobile Leseansicht (wie auf dem Handy)">Mobil</button>
     </nav>
   </div>
   <div class="kpis" id="kpis"></div>
@@ -745,7 +757,7 @@ body.team [data-mobon]{display:none!important}
   function start(data){
     window.__SHP_OFFLINE = true; window.__SHP_TEAM = true; window.__SHP_DATA = data;
     document.getElementById("lock").hidden = true;
-    const s = document.createElement("script"); s.src = "app.js?v=104"; document.body.appendChild(s);
+    const s = document.createElement("script"); s.src = "app.js?v=106"; document.body.appendChild(s);
   }
   async function tryPw(pw, remember){ try { const d = await open(pw); if (remember){ try { localStorage.setItem(KEY, pw); } catch(e){} } start(d); return true; } catch(e){ return false; } }
   document.getElementById("lkf").addEventListener("submit", async ev => { ev.preventDefault(); const pw = document.getElementById("lkpw").value; if (!(await tryPw(pw, true))) show(true); });

@@ -27,7 +27,7 @@ const OPEN_TXT = "Außerhalb der Kernöffnungszeit ("+OPEN_FROM+"–"+OPEN_TO+" 
 
 /* ---------- Zustand ---------- */
 const S = {series:{}, referents:{}, events:{}, absences:{}, weeks:{}, accepted:{}, rounds:{}, msgs:{}, loaded:false};
-const UI = {serFilter:"alle", view:"jahr", week:null, month:"alle", status:"alle", onlyIssues:false, q:"", drawer:null};
+const UI = {lPast:false, serFilter:"alle", view:"jahr", week:null, month:"alle", status:"alle", onlyIssues:false, q:"", drawer:null};
 try { UI.sender = localStorage.getItem("shp-sender") || ""; } catch(e){ UI.sender = ""; }
 let db = null, downloads = null, ISS = new Map();
 /* Offline-Version (eigene HTML-Datei ohne Claude): gleicher Code, Daten lokal; Quelltext/Styles für das Erzeugen der Offline-Datei merken */
@@ -181,7 +181,9 @@ const ov = (a1,a2,b1,b2) => a1 < b2 && b1 < a2;
 function computeIssues(list){
   const out = new Map(), zk = new Set(); out.zones = [];
   /* z = Fehlerstelle {from, to, lanes:[Räume | "__ci"]} – wird in der Wochenansicht als Markierung gezeichnet */
-  const add = (e,l,t,z) => { if (!out.has(e.id)) out.set(e.id, []); const a = out.get(e.id); if (!a.some(x => x.t === t)) a.push({l,t,z:!!z});
+  /* g: Kennung für Meldungen, die zwei Termine gemeinsam betreffen (Prüfbericht zeigt sie als eine Zeile) */
+  const gids = new WeakMap(); let gn = 0; const gid = o => { if (!o || typeof o !== "object") return 0; if (!gids.has(o)) gids.set(o, ++gn); return gids.get(o); };
+  const add = (e,l,t,z,g) => { if (!out.has(e.id)) out.set(e.id, []); const a = out.get(e.id); if (!a.some(x => x.t === t)) a.push({l,t,z:!!z,g:gid(g||z)});
     if (z && z.to > z.from){ const k = e.date+"|"+z.from+"|"+z.to+"|"+z.lanes.join(","); let zz;
       if (!zk.has(k)){ zk.add(k); zz = {date:e.date, from:z.from, to:z.to, lanes:z.lanes, t, l, m:[]}; out.zones.push(zz); } else { zz = out.zones.find(q => q.date+"|"+q.from+"|"+q.to+"|"+q.lanes.join(",") === k); if (zz && !zz.t.includes(t)) zz.t += " · " + t; if (zz && l === "err") zz.l = "err"; }
       if (zz && !zz.m.some(q => q.id === e.id && q.t === t)) zz.m.push({id:e.id, t}); } };
@@ -213,6 +215,7 @@ function computeIssues(list){
       if (st != null && r.evening && st < 17*60) add(e,"err",r.name+" kann nur abends");
       if (r.noFerien && ferienOn(e.date)) add(e,"err",r.name+" kann nicht in den Schulferien");
       if ((r.avail||[]).length){ const sp0 = span(e); availIssues(e, r, sp0 && !e.allDay ? sp0.s : null, sp0 && !e.allDay ? sp0.e : null, add); }
+      { const ra = (e.refAns||{})[rid]; if (ra && ra.date === e.date && (ra.start||"") === (e.start||"") && !SETTLED.includes(e.status)){ if (ra.a === "nein") add(e,"err",r.name+": passt nicht – neu planen"+(ra.note ? " ("+ra.note+")" : "")); else if (ra.a === "offen") add(e,"info",r.name+": noch offen"+(ra.note ? " ("+ra.note+")" : "")); } }
     }
     if ((ser.weekdays||[]).length && !ser.weekdays.includes(w)) add(e,"err",WDL[w].replace(/^./, c => c.toUpperCase())+" nicht vorgesehen (Reihe: "+ser.weekdays.map(x => WD[x]).join(", ")+")");
     if (st != null && ser.earliest && st < t2m(ser.earliest)) add(e,"err","Beginn vor "+ser.earliest+" nicht möglich (Reihe)");
@@ -230,7 +233,7 @@ function computeIssues(list){
       if (se && OUTROOMS.includes(e.room) && !inSeason(e.date, se)) add(e,"warn","Außerhalb der Draußen-Saison ("+md2de(se.from)+"–"+md2de(se.to)+")"+(se.off ? ": "+se.off : ""));
       if (st != null){ const ss = sunset(e.date), ph = endPh(e), oe = st + (+e.dur||60) - (ph ? ph.min : 0); if (oe > ss) add(e,"warn",(ph ? "Draußen-Teil endet" : "Endet")+" nach Sonnenuntergang ("+m2t(Math.round(ss))+")"); }
     }
-    if (/Walk and Talk/i.test(nm)){ const m = +e.date.slice(5,7); if (m === 12 || m <= 2) add(e,"warn","Walk and Talk: Winterpause Dez–Feb"); }
+    /* Walk and Talk: ganzjährig (keine Winterpause mehr, 28.10.2026) – Sonnenuntergang wird weiter geprüft */
     if (/Lungenkrebs/i.test(nm) && !(w === 4 && +e.date.slice(8) <= 7)) add(e,"info","Nicht am 1. Donnerstag des Monats");
     if (/Caféhaus/i.test(nm) && w === 3) add(e,"err","Caféhaus nie mittwochs");
     if (/Ernährungs-Coach/i.test(nm) && !(byDate[e.date]||[]).some(x => /Walk and Talk/i.test(serName(x)))) add(e,"info","Ohne Walk-and-Talk-Kopplung (neu ab 2027)");
@@ -256,7 +259,7 @@ function computeIssues(list){
         add(b, "err", t + " – nach „" + evName(a) + "“", z); add(a, "err", t + " – vor „" + evName(b) + "“", z); } }
   }
   const mk = act.filter(e => /Mannschafts/i.test(serName(e))), kc = act.filter(e => /Küchenclub/i.test(serName(e)));
-  for (const a of mk) for (const b of kc) if (Math.abs(D(a.date) - D(b.date)) < 7){ add(a,"warn","Weniger als 1 Woche Abstand zum Küchenclub"); add(b,"warn","Weniger als 1 Woche Abstand zum Mannschafts-Kochen"); }
+  for (const a of mk) for (const b of kc) if (Math.abs(D(a.date) - D(b.date)) < 7){ const g = {}; add(a,"warn","Weniger als 1 Woche Abstand zum Küchenclub",null,g); add(b,"warn","Weniger als 1 Woche Abstand zum Mannschafts-Kochen",null,g); }
   return out;
 }
 function pair(a, b, add){
@@ -574,43 +577,61 @@ function viewWoche(o){
     return `<div class="scroll"><div class="wgrid ${MOB ? (S.weeks[weekKey(part[0].d)] || "belebt") + " mob" : st}" style="grid-template-columns:var(--wlab) ${part.map(() => "minmax(0,1fr)").join(" var(--wgap) ")}">${html}</div></div>`;
   };
   if (MOB) return o.week ? days.map(x => block([x])).join("") : block(days);
-  if (ONE) return `<div class="head"><div class="weeknav"><button class="btn" data-prback="1" title="Termin schließen und zurück zum Prüfbericht">← Prüfbericht</button><span class="kwl">${WD[wdOf(ONE)]} ${fmtY(ONE)} · KW ${isoWeek(ONE)[1]}</span><button class="btn" data-dayweek="1" title="Ganze Woche anzeigen">Ganze Woche</button>${qh("<b>Tagesansicht aus dem Prüfbericht</b><ul><li>Zeigt den Tag des Termins mit allen Belegungen und Konfliktstellen.</li><li>Ändert sich im Dialog das Datum, folgt die Ansicht dem neuen Tag.</li><li>Schließen oder Speichern führt zurück zum Prüfbericht.</li><li>„Ganze Woche“ wechselt in die normale Wochenansicht.</li></ul>")}</div></div>${st === "ruhig" ? `<div class="wkbanner ruhig" role="note"><b>Ruhige Woche</b><span>So wenig Programm wie möglich.</span></div>` : st === "pause" ? `<div class="wkbanner pause" role="note"><b>Programmpause</b><span>Keine Veranstaltungen – nur feste Termine.</span></div>` : ""}${PREV ? `<div class="prevbar">Vorschau der Eingabe im Dialog rechts: <span class="pv-d">Entwurf</span> = neue Lage, <span class="pv-o">bisher</span> = gespeicherte Lage. Rot-weiß = Konflikt mit dem Entwurf.</div>` : ""}<div class="wblocks one">${block(days)}</div>`;
+  if (ONE) return `<div class="head"><div class="weeknav"><button class="btn" data-prback="1" title="Termin schließen und zurück zum ${UI.view0 === "liste" ? "Terminliste" : "Prüfbericht"}">← ${UI.view0 === "liste" ? "Terminliste" : "Prüfbericht"}</button><span class="kwl">${WD[wdOf(ONE)]} ${fmtY(ONE)} · KW ${isoWeek(ONE)[1]}</span><button class="btn" data-dayweek="1" title="Ganze Woche anzeigen">Ganze Woche</button>${qh("<b>Tagesansicht</b> (aus Prüfbericht oder Terminliste)<ul><li>Zeigt den Tag des Termins mit allen Belegungen und Konfliktstellen.</li><li>Ändert sich im Dialog das Datum, folgt die Ansicht dem neuen Tag.</li><li>Schließen oder Speichern führt zurück zum Prüfbericht bzw. zur Terminliste.</li><li>„Ganze Woche“ wechselt in die normale Wochenansicht.</li></ul>")}</div></div>${st === "ruhig" ? `<div class="wkbanner ruhig" role="note"><b>Ruhige Woche</b><span>So wenig Programm wie möglich.</span></div>` : st === "pause" ? `<div class="wkbanner pause" role="note"><b>Programmpause</b><span>Keine Veranstaltungen – nur feste Termine.</span></div>` : ""}${PREV ? `<div class="prevbar">Vorschau der Eingabe im Dialog rechts: <span class="pv-d">Entwurf</span> = neue Lage, <span class="pv-o">bisher</span> = gespeicherte Lage. Rot-weiß = Konflikt mit dem Entwurf.</div>` : ""}<div class="wblocks one">${block(days)}</div>`;
   return `<div class="head"><div class="weeknav"><button class="btn" data-wnav="-7" aria-label="Vorige Woche">←</button><button class="btn" data-wnav="7" aria-label="Nächste Woche">→</button><button class="btn" data-wtoday="1" aria-pressed="${mobMon(UI.week) === mobMon(todayStr())}" title="Zur aktuellen Woche">Heute</button><span class="kwl">KW ${w} · ${fmt(mon)}–${fmtY(S_(D(mon)+6))}</span><input class="in" type="date" id="wkjump" value="${UI.week}" aria-label="Woche wählen">${qh(`<div class="qcols"><div>${wkLegend()}</div><div>${legendThemes()}</div></div>`)}</div><div class="tools">${PREV && PREV.list.some(e => e.__draft) ? `<button class="btn ghost sm" data-alt="1" aria-pressed="${UI.altOff ? "false" : "true"}" title="Schraffur der möglichen Lagen für den geöffneten Termin ein-/ausblenden">${UI.altOff ? "Alternativen zeigen" : "Alternativen ausblenden"}</button>` : ""}<button class="wkst ${st}" data-wk="${y}-W${pad(w)}" title="Wochenstatus wechseln: belebt → ruhig → Pause">${stLab(st)}</button></div></div>${st === "ruhig" ? `<div class="wkbanner ruhig" role="note"><b>Ruhige Woche</b><span>So wenig Programm wie möglich: regulär nur Walk and Talk; Einzelberatungen und andere Veranstaltungen nur als Ausnahme.</span></div>` : st === "pause" ? `<div class="wkbanner pause" role="note"><b>Programmpause</b><span>Keine Veranstaltungen – nur feste Termine.</span></div>` : ""}${PREV ? `<div class="prevbar">Vorschau der Eingabe im Dialog rechts: <span class="pv-d">Entwurf</span> = neue Lage, <span class="pv-o">bisher</span> = gespeicherte Lage. Rot-weiß = Konflikt mit dem Entwurf.</div>` : ""}<div class="wblocks">${block(days.slice(0,3))}${block(days.slice(3))}</div>`;
 }
 
 /* ---------- Ansicht: Liste ---------- */
 function filtered(){
-  return evList().filter(e => {
+  const td = todayStr();
+  const r = evList().filter(e => {
+    if (UI.lPast ? e.date >= td : e.date < td) return false;
     if (UI.month !== "alle" && +e.date.slice(5,7) !== +UI.month) return false;
     if (UI.status !== "alle" && e.status !== UI.status) return false;
     if (UI.onlyIssues && !["err","warn"].includes(worst(e.id))) return false;
     if (UI.q && !(evName(e)+" "+(e.room||"")+" "+(e.note||"")).toLowerCase().includes(UI.q.toLowerCase())) return false;
     return true;
   }).sort(sortEv);
+  return UI.lPast ? r.reverse() : r;
 }
 function viewListe(){
   const evs = filtered();
   const rows = evs.map(e => { const [,w] = isoWeek(e.date); const sp = span(e); return `<tr class="click" data-ev="${e.id}"><td class="t">${fmtY(e.date)}</td><td class="t">${WD[wdOf(e.date)]} · KW ${w}</td><td class="t">${e.allDay?"ganzt.":esc(e.start||"–")}${sp&&!e.allDay?"–"+m2t(sp.e):""}</td><td><b>${esc(evName(e))}</b><div>${tbadge(e.theme)}</div></td><td>${esc(e.room||"–")}${e.hybrid?" · hybrid":""}</td><td>${stchip(e.status)}</td><td class="t">${e.kind==="va"?fmtY(S_(D(e.date)-56)):"–"}</td><td><div class="iss">${lvchips(e.id,4)}</div></td></tr>`; }).join("");
-  return `<div class="head"><h2>Terminliste ${qh(`<ul><li>Filter nach Monat, Status, nur Termine mit Fehlern/Hinweisen und Freitextsuche (Name, Raum, Notiz).</li><li><b>Online bis</b> = Termin − 8 Wochen: bis dahin muss die Veranstaltung veröffentlicht sein (sonst Fehler). Ab 10 Wochen vorher Vorwarnung, solange der Status unter „fix“ liegt.</li><li>„CSV exportieren“ speichert die gefilterte Liste, z. B. zum Anlegen in WordPress.</li><li>Klick auf eine Zeile öffnet den Termin.</li></ul>`)}</h2><div class="tools"><button class="btn" data-csv="1">CSV exportieren</button><button class="btn primary" data-new="1">+ Termin</button></div></div>
-  <div class="filters"><select class="in" id="fMonth" aria-label="Monat"><option value="alle">Alle Monate</option>${MONTHS.map((m,i) => `<option value="${i+1}" ${+UI.month===i+1?"selected":""}>${m}</option>`).join("")}</select>
+  return `<div class="head"><h2>Terminliste ${qh(`<ul><li><b>Kommende | Vergangene</b>: Standard sind alle Termine ab heute. „Vergangene“ zeigt bereits durchgeführte Termine, die neuesten oben. Nach dem Neuladen steht die Liste wieder auf „Kommende“.</li><li>Filter nach Monat, Status, nur Termine mit Fehlern/Hinweisen und Freitextsuche (Name, Raum, Notiz).</li><li><b>Online bis</b> = Termin − 8 Wochen: bis dahin muss die Veranstaltung veröffentlicht sein (sonst Fehler). Ab 10 Wochen vorher Vorwarnung, solange der Status unter „fix“ liegt.</li><li>„CSV exportieren“ speichert die gefilterte Liste (kommende bzw. vergangene), z. B. zum Anlegen in WordPress.</li><li>Klick auf eine Zeile öffnet den Termin rechts, links erscheint der betroffene Tag mit allen Belegungen. Schließen oder Speichern führt zurück zur Terminliste an dieselbe Stelle.</li></ul>`)}</h2><div class="tools"><button class="btn" data-csv="1">CSV exportieren</button><button class="btn primary" data-new="1">+ Termin</button></div></div>
+  <div class="filters"><span class="seg" role="group" aria-label="Zeitraum"><button class="btn ${UI.lPast?"":"primary"}" data-lpast="0">Kommende</button><button class="btn ${UI.lPast?"primary":""}" data-lpast="1">Vergangene</button></span><select class="in" id="fMonth" aria-label="Monat"><option value="alle">Alle Monate</option>${MONTHS.map((m,i) => `<option value="${i+1}" ${+UI.month===i+1?"selected":""}>${m}</option>`).join("")}</select>
   <select class="in" id="fStatus" aria-label="Status"><option value="alle">Alle Status</option>${STATUS.map(s => `<option ${UI.status===s?"selected":""}>${s}</option>`).join("")}</select>
   <label><input type="checkbox" id="fIss" ${UI.onlyIssues?"checked":""}> nur mit Fehlern/Hinweisen</label>
-  <input class="in" id="fQ" placeholder="Suchen" value="${esc(UI.q)}"><span class="notes">${evs.length} Termine</span></div>
-  ${evs.length ? `<div class="scroll"><table class="list"><thead><tr><th>Datum</th><th>Tag</th><th>Zeit</th><th>Veranstaltung</th><th>Raum</th><th>Status</th><th>Online bis</th><th>Prüfung</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty">Keine Termine für diese Auswahl.</div>`}`;
+  <input class="in" id="fQ" placeholder="Suchen" value="${esc(UI.q)}"><span class="notes">${evs.length} ${UI.lPast?"vergangene":"kommende"} Termine</span></div>
+  ${evs.length ? `<div class="scroll"><table class="list"><thead><tr><th>Datum</th><th>Tag</th><th>Zeit</th><th>Veranstaltung</th><th>Raum</th><th>Status</th><th>Online bis</th><th>Prüfung</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty">Keine ${UI.lPast?"vergangenen":"kommenden"} Termine für diese Auswahl.</div>`}`;
 }
 
 /* ---------- Ansicht: Prüfung ---------- */
+/* Prüfbericht-Gruppen: eine Meldung, die zwei Termine gemeinsam betrifft (gleiche Kennung g), wird zu einer Zeile.
+   Offen, solange mindestens eine Seite nicht akzeptiert ist; akzeptieren/wieder aktivieren gilt für alle Seiten. */
+function prGroups(){
+  const map = new Map(), out = [];
+  evList().filter(e => e.status !== "abgesagt").sort(sortEv).forEach(e => issuesAll(e.id).forEach(x => {
+    const k = x.g ? "g" + x.g : "s" + out.length; let grp = x.g && map.get(k);
+    if (!grp){ grp = {l:x.l, m:[]}; out.push(grp); if (x.g) map.set(k, grp); }
+    grp.m.push({e, x}); if (x.l === "err") grp.l = "err";
+  }));
+  out.forEach(g => { g.open = g.m.some(i => !i.x.acc); g.e = g.m[0].e; });
+  return out;
+}
+const prMembers = g => JSON.stringify(g.m.map(i => [i.e.id, i.x.t]));
+function prWhen(g){ const ds = [...new Set(g.m.map(i => i.e.date))]; return ds.map(d => `${WD[wdOf(d)]} ${fmtY(d)}`).join("<br>"); }
+function prEvs(g, room){ return g.m.map(i => `<span class="prev" data-ev="${i.e.id}">${esc(evName(i.e))}</span> · ${esc(i.e.start||"ohne Zeit")}${room ? " · " + esc(i.e.room||"Raum offen") : ""}`).join(g.m.length > 1 ? ` <span class="prsep">↔</span> ` : ""); }
+const prText = g => esc(g.m[0].x.t);
 function viewPruefung(){
-  const items = [];
-  evList().filter(e => e.status !== "abgesagt").forEach(e => issuesOf(e.id).forEach(x => items.push({e, x})));
-  const accd = []; evList().filter(e => e.status !== "abgesagt").forEach(e => issuesAll(e.id).filter(x => x.acc).forEach(x => accd.push({e, x}))); accd.sort((a,b) => sortEv(a.e,b.e));
+  const grs = prGroups();
+  const items = grs.filter(g => g.open), accd = grs.filter(g => !g.open && g.m.some(i => i.x.acc));
   const ord = {err:0,warn:1,info:2};
-  items.sort((a,b) => ord[a.x.l]-ord[b.x.l] || sortEv(a.e,b.e));
-  const n = l => items.filter(i => i.x.l === l).length;
+  items.sort((a,b) => ord[a.l]-ord[b.l] || sortEv(a.e,b.e));
+  const n = l => items.filter(g => g.l === l).length;
   const lab = {err:"Fehler",warn:"Hinweis",info:"Info"};
-  return `<div class="head"><h2>Prüfbericht ${qh(`<b>Prüfbericht</b><ul><li><b>Fehler</b> (rot) müssen gelöst werden, z. B. Raumkonflikt, Check-in überlagert, EG exklusiv belegt, Online-Frist verpasst (8 Wochen vorher nicht veröffentlicht).</li><li><b>Hinweise</b> (gelb) sind abzuwägen, z. B. ruhige Woche, Lärm durch Check-in, Ausweichraum belegt, Vorwarnung 10 Wochen vorher (Status unter „fix“).</li><li><b>Kernöffnungszeit</b> 10–21 Uhr: Beginn und Ende inkl. Nachlauf außerhalb davon ergibt einen Hinweis.</li><li><b>Umbauzeit Workshopraum</b>: wechselt die Möblierung zwischen zwei Veranstaltungen am selben Tag, sind mind. 2 Std. Umbau nötig (Abbau + Aufbau, wenn zusammen länger). Gezählt wird vom Ende inkl. Nachlauf bis zum Beginn des Check-ins der nächsten Veranstaltung – der Umbau muss vor dem Check-in fertig sein.</li><li><b>Absolute Ruhe im EG (Stufe 4)</b>: Auch eine parallele Veranstaltung „unterwegs“ darf nicht während der Ruhe-Veranstaltung enden – die zurückkehrenden Gäste betreten das EG.</li><li><b>Lungenkrebs</b>: Der Nachlauf einer vorherigen Veranstaltung darf sich mit dem Start der Selbsthilfegruppe überschneiden.</li><li><b>Andocken</b>: Backen direkt vor dem Caféhaus und Frag den Doc direkt nach dem Caféhaus – Check-in, Nachlauf und Abbau dürfen sich dabei überlagern und werden nicht gemeldet.</li><li><b>Infos</b> nur zur Kenntnis.</li><li>Klick auf eine Zeile öffnet den Termin; in der Wochenansicht ist die Fehlerstelle rot-weiß markiert.</li><li>Der rote Zähler am Reiter „Prüfung“ zeigt die Anzahl der Fehler; er verschwindet, wenn nur noch Hinweise oder Infos offen sind.</li><li><b>akzeptieren</b>: Konflikt bewusst hinnehmen – er zählt dann nicht mehr hier, im Jahresüberblick und im Zähler; in der Wochenansicht bleibt die Stelle gelb markiert. Unten unter „Akzeptierte Konflikte“ wieder aktivierbar. Ändert sich der Termin so, dass ein anderer Konflikt entsteht, erscheint er neu.</li><li>Eintrag anklicken: Termin öffnet sich rechts, links erscheint der betroffene Tag mit allen Belegungen. Schließen oder Speichern führt zurück zum Prüfbericht.</li></ul>`)}</h2><div class="sub">${n("err")} Fehler · ${n("warn")} Hinweise · ${n("info")} Infos</div></div>
-  ${items.length ? `<div class="ilist">${items.map(i => `<div class="iitem" data-ev="${i.e.id}"><span class="lv ${i.x.l}">${lab[i.x.l]}</span><span class="when t">${WD[wdOf(i.e.date)]} ${fmtY(i.e.date)}</span><div class="what"><b>${esc(i.x.t)}</b><div>${esc(evName(i.e))} · ${esc(i.e.start||"ohne Zeit")} · ${esc(i.e.room||"Raum offen")}</div></div>${i.x.l !== "info" ? `<button class="btn ghost sm" data-acc='${esc(JSON.stringify([i.e.id, i.x.t]))}' data-on="1" title="Konflikt akzeptieren">akzeptieren</button>` : ""}</div>`).join("")}</div>` : `<div class="empty">Keine Auffälligkeiten.</div>`}
-  ${accd.length ? `<details class="sec accsec"><summary>Akzeptierte Konflikte (${accd.length})</summary><div class="ilist">${accd.map(i => `<div class="iitem" data-ev="${i.e.id}"><span class="lv warn">akzeptiert</span><span class="when t">${WD[wdOf(i.e.date)]} ${fmtY(i.e.date)}</span><div class="what"><b>${esc(i.x.t)}</b><div>${esc(evName(i.e))} · ${esc(i.e.start||"ohne Zeit")}</div></div><button class="btn ghost sm" data-acc='${esc(JSON.stringify([i.e.id, i.x.t]))}' data-on="0">wieder aktivieren</button></div>`).join("")}</div></details>` : ""}`;
+  return `<div class="head"><h2>Prüfbericht ${qh(`<b>Prüfbericht</b><ul><li><b>Fehler</b> (rot) müssen gelöst werden, z. B. Raumkonflikt, Check-in überlagert, EG exklusiv belegt, Online-Frist verpasst (8 Wochen vorher nicht veröffentlicht).</li><li><b>Hinweise</b> (gelb) sind abzuwägen, z. B. ruhige Woche, Lärm durch Check-in, Ausweichraum belegt, Vorwarnung 10 Wochen vorher (Status unter „fix“).</li><li><b>Kernöffnungszeit</b> 10–21 Uhr: Beginn und Ende inkl. Nachlauf außerhalb davon ergibt einen Hinweis.</li><li><b>Umbauzeit Workshopraum</b>: wechselt die Möblierung zwischen zwei Veranstaltungen am selben Tag, sind mind. 2 Std. Umbau nötig (Abbau + Aufbau, wenn zusammen länger). Gezählt wird vom Ende inkl. Nachlauf bis zum Beginn des Check-ins der nächsten Veranstaltung – der Umbau muss vor dem Check-in fertig sein.</li><li><b>Absolute Ruhe im EG (Stufe 4)</b>: Auch eine parallele Veranstaltung „unterwegs“ darf nicht während der Ruhe-Veranstaltung enden – die zurückkehrenden Gäste betreten das EG.</li><li><b>Lungenkrebs</b>: Der Nachlauf einer vorherigen Veranstaltung darf sich mit dem Start der Selbsthilfegruppe überschneiden.</li><li><b>Andocken</b>: Backen direkt vor dem Caféhaus und Frag den Doc direkt nach dem Caféhaus – Check-in, Nachlauf und Abbau dürfen sich dabei überlagern und werden nicht gemeldet.</li><li><b>Infos</b> nur zur Kenntnis.</li><li><b>Zwei Termine, ein Konflikt</b>: Betrifft eine Meldung zwei Termine (z. B. Raumkonflikt), steht sie nur einmal hier und zählt nur einmal. Beide Termine stehen in der Zeile (↔); ein Klick auf einen Namen öffnet genau diesen Termin. „akzeptieren“ gilt für beide.</li><li>Klick auf eine Zeile öffnet den Termin; in der Wochenansicht ist die Fehlerstelle rot-weiß markiert.</li><li>Der rote Zähler am Reiter „Prüfung“ zeigt die Anzahl der Fehler; er verschwindet, wenn nur noch Hinweise oder Infos offen sind.</li><li><b>akzeptieren</b>: Konflikt bewusst hinnehmen – er zählt dann nicht mehr hier, im Jahresüberblick und im Zähler; in der Wochenansicht bleibt die Stelle gelb markiert. Unten unter „Akzeptierte Konflikte“ wieder aktivierbar. Ändert sich der Termin so, dass ein anderer Konflikt entsteht, erscheint er neu.</li><li>Eintrag anklicken: Termin öffnet sich rechts, links erscheint der betroffene Tag mit allen Belegungen. Schließen oder Speichern führt zurück zum Prüfbericht.</li></ul>`)}</h2><div class="sub">${n("err")} Fehler · ${n("warn")} Hinweise · ${n("info")} Infos</div></div>
+  ${items.length ? `<div class="ilist">${items.map(g => `<div class="iitem${g.m.length > 1 ? " pair" : ""}" data-ev="${g.e.id}"><span class="lv ${g.l}">${lab[g.l]}</span><span class="when t">${prWhen(g)}</span><div class="what"><b>${prText(g)}</b><div>${prEvs(g, true)}</div></div>${g.l !== "info" ? `<button class="btn ghost sm" data-accg='${esc(prMembers(g))}' data-on="1" title="Konflikt akzeptieren${g.m.length > 1 ? " (gilt für beide Termine)" : ""}">akzeptieren</button>` : ""}</div>`).join("")}</div>` : `<div class="empty">Keine Auffälligkeiten.</div>`}
+  ${accd.length ? `<details class="sec accsec"><summary>Akzeptierte Konflikte (${accd.length})</summary><div class="ilist">${accd.map(g => `<div class="iitem${g.m.length > 1 ? " pair" : ""}" data-ev="${g.e.id}"><span class="lv warn">akzeptiert</span><span class="when t">${prWhen(g)}</span><div class="what"><b>${prText(g)}</b><div>${prEvs(g, false)}</div></div><button class="btn ghost sm" data-accg='${esc(prMembers(g))}' data-on="0">wieder aktivieren</button></div>`).join("")}</div></details>` : ""}`;
 }
 
 /* ---------- Ansicht: Reihen ---------- */
@@ -677,12 +698,12 @@ function quickTimes(){
 }
 
 /* ---------- Ansicht: Referenten ---------- */
-function viewReferenten(){
+function viewRefStamm(seg, sender){
   const rs = Object.values(S.referents).sort(byRefName);
   const ser = id => Object.values(S.series).filter(s => (s.refs||[]).includes(id)).map(s => s.name).join(", ");
   const cons = r => [r.only&&r.only.length?"nur "+r.only.map(x => WD[x]).join("/"):"", r.blocked&&r.blocked.length?"nicht "+r.blocked.map(x => WD[x]).join("/"):"", r.noMorning&&r.noMorning.length?"nicht vormittags "+r.noMorning.map(x => WD[x]).join("/"):"", r.evening?"nur abends":"", r.noFerien?"nicht in Schulferien":""].concat((r.avail||[]).map(availLabel)).concat(r.wish != null ? ["Wunsch: "+r.wish+" Termine"] : []).filter(Boolean).join(" · ");
   const rows = rs.map(r => `<tr class="click" data-ref="${r.id}"><td><b>${esc(r.name)}</b><div class="notes">${esc(r.role||"")}</div></td><td>${esc(ser(r.id)||"–")}</td><td>${esc(cons(r)||"–")}</td><td>${esc(r.email||"–")}${r.phone?"<br>"+esc(r.phone):""}</td></tr>`).join("");
-  return `<div class="head"><h2>Referenten ${qh(`<ul><li>Kontakt, Anrede (Du/Sie) und Kontaktweg je Person.</li><li><b>Einschränkungen der Person</b> (nur bestimmte Tage, gesperrte Tage, nicht vormittags, nur abends, nicht in den Ferien) nur pflegen, wenn die Person in mehreren Reihen oder im Wechsel auftritt – sonst Tage und Zeiten in der Reihe.</li><li><b>Verfügbarkeit aus Abfragen</b>: was über „Anfragen“ → „Antwort einfügen“ übernommen wurde (abwesend, kann nicht, kann nur, Wunschanzahl). Im Dialog einzeln entfernbar.</li><li><b>Nachrichtenverlauf</b> im Dialog: alle Anfragen und Antworten mit Datum und Absender.</li><li>Die Prüfung nutzt die Angaben automatisch für jeden Termin.</li><li>Sortiert nach Vorname; Titel wie Dr. werden ignoriert.</li><li><b>Ungespeicherte Änderungen</b> im Dialog: geänderte Felder magenta umrahmt mit Balken links, betroffene Bereiche mit „● geändert“, unten die Anzahl. Verschwindet nach „Speichern“ oder wenn der alte Wert wieder eingetragen wird.</li></ul>`)}</h2><div class="tools"><button class="btn primary" data-newref="1">+ Referent</button></div></div>
+  return `<div class="head"><h2>Referenten ${qh(`<ul><li>Kontakt, Anrede (Du/Sie) und Kontaktweg je Person.</li><li><b>Einschränkungen der Person</b> (nur bestimmte Tage, gesperrte Tage, nicht vormittags, nur abends, nicht in den Ferien) nur pflegen, wenn die Person in mehreren Reihen oder im Wechsel auftritt – sonst Tage und Zeiten in der Reihe.</li><li><b>Verfügbarkeit aus Abfragen</b>: was über „Vorabfrage Verfügbarkeit“ → „Antwort einfügen“ übernommen wurde (abwesend, kann nicht, kann nur, Wunschanzahl). Im Dialog einzeln entfernbar.</li><li><b>Nachrichtenverlauf</b> im Dialog: alle Anfragen und Antworten mit Datum und Absender.</li><li>Die Prüfung nutzt die Angaben automatisch für jeden Termin.</li><li>Sortiert nach Vorname; Titel wie Dr. werden ignoriert.</li><li><b>Ungespeicherte Änderungen</b> im Dialog: geänderte Felder magenta umrahmt mit Balken links, betroffene Bereiche mit „● geändert“, unten die Anzahl. Verschwindet nach „Speichern“ oder wenn der alte Wert wieder eingetragen wird.</li></ul>`)}</h2><div class="tools">${seg}${sender}<button class="btn primary" data-newref="1">+ Referent</button></div></div>
   ${rs.length ? `<div class="scroll"><table class="list"><thead><tr><th>Name</th><th>Reihen</th><th>Verfügbarkeit</th><th>Kontakt</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty">Noch keine Referenten angelegt.</div>`}`;
 }
 
@@ -706,9 +727,12 @@ function viewAbwesend(){
 /* Roter Zähler am Reiter „Prüfung“ = Anzahl Fehler im Prüfbericht */
 function errBadge(){
   const b = document.querySelector('#tabs [data-view="pruefung"]'); if (!b) return;
-  let n = 0; evList().filter(e => e.status !== "abgesagt").forEach(e => n += issuesOf(e.id).filter(x => x.l === "err").length);
+  const n = prGroups().filter(g => g.open && g.l === "err").length;
   b.innerHTML = "Prüfung" + (n ? `<span class="nbadge" title="${n} Fehler im Prüfbericht">${n > 99 ? "99+" : n}</span>` : "");
   b.setAttribute("aria-label", n ? `Prüfung, ${n} Fehler` : "Prüfung");
+  const rb = document.querySelector('#tabs [data-view="referenten"]'); if (!rb) return;
+  const k = personRefs().filter(r => ["neu","late","ans"].includes(personInfo(r).state)).length;
+  rb.innerHTML = "Referenten" + (k ? `<span class="nbadge" style="background:var(--violet-2)" title="${k} Personen brauchen einen Schritt (neu anzuschreiben, nachfassen, Antwort auswerten)">${k > 99 ? "99+" : k}</span>` : "");
 }
 /* Popover an einer Fehlerstelle: Konflikt akzeptieren oder wieder aktivieren */
 function zonePop(i, el){
@@ -724,7 +748,10 @@ function zonePop(i, el){
 }
 document.addEventListener("click", ev => { const p = $("#zpop"); if (!p || p.hidden) return; if (ev.target.closest("[data-zclose]") || (!ev.target.closest("#zpop") && !ev.target.closest("[data-zone]"))) p.hidden = true; }, true);
 /* ---------- Anfragen an Referenten (Runden, Nachrichtenverlauf, Auswertung) ---------- */
-const RTYPES = {verf:"Verfügbarkeit (Vorabfrage)"};
+const RTYPES = {verf:"Verfügbarkeit (Vorabfrage)", term:"Terminabfrage (Vorplanung)"};
+/* Terminabfrage: nur Termine, die zur Besprechung stehen (Status Idee, Option, angefragt; keine festen Termine) */
+const DISCUSS = ["Idee","Option","angefragt"];
+const rdType = rd => (rd && rd.type) || "verf";
 const NACHFASS_TAGE = 10;
 const senderName = () => UI.sender || "";
 const SENDER_IDS = {Kati:"kati-burchart", Sebastian:"sebastian-roeder"};
@@ -733,7 +760,8 @@ const firstName = r => { const n = sortName(r.name||""); if (/team/i.test(n)) re
 const greet = r => { const fn = firstName(r); if ((r.salutation||"Du") === "Sie") return fn ? "Guten Tag " + sortName(r.name).replace(/\s*\(.*\)$/,"") + "," : "Guten Tag,"; return fn ? "Hallo " + fn + "," : "Hallo zusammen,"; };
 const isTeamInternal = r => ["sebastian-roeder","kati-burchart"].includes(r.id);
 /* Wen betrifft die Abfrage: Referenten aktiver Reihen oder mit Terminen ab März */
-function roundRefs(){
+function roundRefs(rd){
+  if (rdType(rd) === "term") return [...new Set(termEvents().flatMap(e => e.refs||[]))].map(id => S.referents[id]).filter(r => r && !isTeamInternal(r)).sort(byRefName);
   const ids = new Set();
   Object.values(S.series).filter(s => s.active !== false).forEach(s => (s.refs||[]).forEach(r => ids.add(r)));
   evList().filter(e => e.kind === "va" && e.status !== "abgesagt" && e.date >= YEAR+"-03-01").forEach(e => (e.refs||[]).forEach(r => ids.add(r)));
@@ -761,6 +789,64 @@ function nachfassText(r, sender){
   const du = (r.salutation||"Du") !== "Sie", team = /team/i.test(r.name||"");
   return {subj: "Erinnerung: SURVIVORS HOME – Planung " + YEAR, body: greet(r) + "\n\n" + (du ? (team ? "kurze Erinnerung an unsere Nachricht zur Planung " + YEAR + ": Habt ihr schon einen Überblick, wann es bei euch nicht geht? Stichpunkte reichen." : "kurze Erinnerung an meine Nachricht zur Planung " + YEAR + ": Hast du schon einen Überblick, wann es bei dir nicht geht? Stichpunkte reichen.") : "kurze Erinnerung an unsere Nachricht zur Planung " + YEAR + ": Haben Sie schon einen Überblick, wann es bei Ihnen nicht geht? Stichpunkte reichen.") + "\n\nHerzliche Grüße\n" + sigName(sender) + "\nSURVIVORS HOME"};
 }
+/* ---------- Terminabfrage: persönliche Terminliste aus der Vorplanung (immer Du- bzw. Ihr-Form) ---------- */
+const termEvents = () => evList().filter(e => e.kind === "va" && e.date.startsWith(String(YEAR)) && DISCUSS.includes(e.status) && !e.fixed);
+const termOf = r => termEvents().filter(e => (e.refs||[]).includes(r.id)).sort(sortEv);
+const termLine = e => { const sp = span(e); return "- " + WD[wdOf(e.date)] + " " + fmtY(e.date) + (e.allDay ? ", ganztägig" : e.start ? ", " + e.start + (sp ? "–" + m2t(sp.e) : "") + " Uhr" : ", Uhrzeit folgt"); };
+/* Gruppen je Angebot: gleiche Titel → Titel, sonst Name der Reihe und Titel je Zeile */
+function termGroups(r){
+  const g = new Map();
+  termOf(r).forEach(e => { const k = e.seriesId || ("t:" + evName(e)); if (!g.has(k)) g.set(k, []); g.get(k).push(e); });
+  return [...g.values()].map(evs => { const ts = [...new Set(evs.map(evName))], lab = ts.length === 1 ? ts[0] : ((S.series[evs[0].seriesId]||{}).name || ts[0]);
+    return {lab, lines: evs.map(e => termLine(e) + (evName(e) !== lab ? " (" + termPart(evName(e)) + ")" : ""))}; });
+}
+/* Teil eines Titels wie „Die Psyche stärken – Einführung (Resilienz)“ → „Einführung“ */
+const termPart = t => { const m = String(t).match(/[–-]\s*([^()–]+?)\s*(\(|$)/); return m ? m[1] : t; };
+/* Gruppen (Selbsthilfe, Orga-Team): Ihr-Form, Anrede mit Vornamen der Kontaktperson, sonst „Hallo zusammen“ */
+const isGroup = r => /team/i.test(r.name||"") || /Selbsthilfe/i.test(r.role||"");
+const termGreet = r => { const fn = firstName(r); return fn ? (MALE.test(fn) ? "Lieber " : "Liebe ") + fn + "," : "Hallo zusammen,"; };
+const termList = gs => gs.length === 1 ? gs[0].lines.join("\n") : gs.map(g => "„" + g.lab + "“\n" + g.lines.join("\n")).join("\n\n");
+const termSig = sender => { if (!sender) return "Herzliche Grüße\n[Name]\nSURVIVORS HOME"; return "Herzliche Grüße\n" + sigName(sender).split(/\s+/)[0] + "\nSURVIVORS HOME"; };
+function termText(r, sender, list, okList){
+  const ok = okList || [];
+  const team = isGroup(r), gs = list ? pGroups(list.concat(ok)) : termGroups(r), one = gs.length === 1, n = (list || termOf(r)).length;
+  const ms = msgsOf(r.id), answered = ms.some(m => m.dir === "in"), known = ms.length > 0;
+  const du = (a, b) => team ? b : a; /* du-Form bzw. ihr-Form */
+  const names = gs.map(g => "„" + g.lab + "“").join(" und ");
+  const subj = "SURVIVORS HOME – " + du("deine", "eure") + " Termine " + YEAR + ": passt das so?";
+  const P = [];
+  if (known){
+    P.push(answered
+      ? du("vielen Dank für deine Rückmeldung in der letzten Runde! Wir haben deine Verfügbarkeiten in die Planung übernommen und hoffen, dass wir dabei nichts übersehen haben.", "vielen Dank für eure Rückmeldung in der letzten Runde! Wir haben eure Verfügbarkeiten in die Planung übernommen und hoffen, dass wir dabei nichts übersehen haben.")
+      : du("wir haben die Planung für " + YEAR + " ein gutes Stück vorangebracht und uns dabei an den Zeiten orientiert, die sich bei dir bisher bewährt haben.", "wir haben die Planung für " + YEAR + " ein gutes Stück vorangebracht und uns dabei an den Zeiten orientiert, die sich bei euch bisher bewährt haben."));
+    P.push(du("Vielleicht hast du es bei unserer letzten Mail schon bemerkt: Für " + YEAR + " planen wir mit einem neuen Planungstool. Damit können wir die Räume und Kapazitäten im Home besser nutzen. Wundere dich also nicht, wenn manche Termine etwas anders liegen als gewohnt.",
+      "Vielleicht habt ihr es bei unserer letzten Mail schon bemerkt: Für " + YEAR + " planen wir mit einem neuen Planungstool. Damit können wir die Räume und Kapazitäten im Home besser nutzen. Wundert euch also nicht, wenn manche Termine etwas anders liegen als gewohnt."));
+  } else {
+    P.push(du("wir freuen uns sehr, dass du " + YEAR + " bei uns im Home dabei bist!", "wir freuen uns sehr, dass ihr " + YEAR + " bei uns im Home dabei seid!"));
+  }
+  P.push((known ? "Diesmal kommen die konkreten Termine aus unserer Vorplanung " : "Aus unserer Vorplanung haben wir ") + (one ? du("für dein Angebot ", "für euer Angebot ") + names : du("für deine Angebote", "für eure Angebote")) + (known ? ":" : (n === 1 ? " folgenden Termin vorgesehen:" : " folgende Termine vorgesehen:")));
+  P.push(list ? pList(list, ok) : termList(gs));
+  P.push(du("Passen dir die Termine? Wenn ein Termin nicht geht oder noch unsicher ist, schreib es einfach dazu, ein kurzes „passt nicht“ oder „noch offen“ reicht. Wenn du selbst einen anderen Termin vorschlagen möchtest, schau am besten vorher in unseren Belegungsplan: " + BELEG_URL + ". Dort siehst du, wann im Home noch Platz ist. Sonst suchen wir einen neuen Termin für dich.",
+    "Passen euch die Termine? Wenn ein Termin nicht geht oder noch unsicher ist, schreibt es einfach dazu, ein kurzes „passt nicht“ oder „noch offen“ reicht. Wenn ihr selbst einen anderen Termin vorschlagen möchtet, schaut am besten vorher in unseren Belegungsplan: " + BELEG_URL + ". Dort seht ihr, wann im Home noch Platz ist. Sonst suchen wir einen neuen Termin für euch.").replace(n === 1 ? /Passen (dir|euch) die Termine\?/ : /^$/, (m, p) => "Passt " + p + " der Termin?").replace(n === 1 ? "Wenn ein Termin nicht geht" : "§", "Wenn er nicht geht").replace(ok.length ? /die Termine\?|der Termin\?/ : /^$/, m => m === "der Termin?" ? "der noch offene Termin?" : "die noch offenen Termine?"));
+  P.push(du("Wir freuen uns, wenn du dich bald meldest. Die endgültige Bestätigung schicken wir dir in der nächsten Runde, denn vielleicht müssen wir noch etwas umstellen, wenn alle Antworten da sind.",
+    "Wir freuen uns, wenn ihr euch bald meldet. Die endgültige Bestätigung schicken wir euch in der nächsten Runde, denn vielleicht müssen wir noch etwas umstellen, wenn alle Antworten da sind."));
+  P.push(du("Von Herzen danke, dass du " + (one ? "dein Angebot " + names : "deine Angebote") + " ins Home bringst und dich so für unsere Gäste einsetzt. Und danke, dass du uns bei der Jahresplanung so gut unterstützt. Ohne Menschen wie dich wäre das Home nicht, was es ist.",
+    "Von Herzen danke, dass ihr " + (one ? "euer Angebot " + names : "eure Angebote") + " ins Home bringt und euch so für unsere Gäste einsetzt. Und danke, dass ihr uns bei der Jahresplanung so gut unterstützt. Ohne Menschen wie euch wäre das Home nicht, was es ist."));
+  return {subj, body: termGreet(r) + "\n\n" + P.join("\n\n") + "\n\n" + termSig(sender)};
+}
+function termNachfass(r, sender){
+  const team = isGroup(r), n = termOf(r).length;
+  const body = termGreet(r) + "\n\n"
+    + (team ? "kurze Erinnerung an unsere Nachricht zu euren Terminen " + YEAR + ": " + (n === 1 ? "Passt euch der Termin?" : "Passen euch die Termine?") + " Ein kurzes „passt“, „passt nicht“ oder „noch offen“ reicht völlig. Hier noch einmal die Übersicht:"
+            : "kurze Erinnerung an meine Nachricht zu deinen Terminen " + YEAR + ": " + (n === 1 ? "Passt dir der Termin?" : "Passen dir die Termine?") + " Ein kurzes „passt“, „passt nicht“ oder „noch offen“ reicht völlig. Hier noch einmal die Übersicht:")
+    + "\n\n" + termList(termGroups(r)) + "\n\n" + termSig(sender);
+  return {subj: "Erinnerung: SURVIVORS HOME – " + (team ? "eure" : "deine") + " Termine " + YEAR, body};
+}
+/* Anrede: „Liebe Sabine“ / „Lieber Armin“ – Vornamen mit männlicher Anrede */
+const MALE = /^(Armin|Günter|Guenter|Thomas|Manuel|Jörg|Joerg|Johann|Marco|Tobias|Sebastian|Uwe)$/i;
+const BELEG_URL = "https://survivors-home.github.io/belegung/";
+/* Mailtext je Rundentyp */
+const roundText = (r, sender, rd, remind) => rdType(rd) === "term" ? (remind ? termNachfass(r, sender) : termText(r, sender)) : (remind ? nachfassText(r, sender) : verfText(r, sender));
 const msgsOf = (rid, roundId) => Object.values(S.msgs||{}).filter(m => m.ref === rid && (!roundId || m.round === roundId)).sort((a,b) => (a.at||"").localeCompare(b.at||""));
 function roundState(r, rd){
   const ms = msgsOf(r.id, rd.id), outs = ms.filter(m => m.dir === "out"), ins = ms.filter(m => m.dir === "in");
@@ -778,6 +864,55 @@ async function logMsg(o){
   if (db){ try { await db.collection("msgs").doc(id).set(o); } catch(e){ toast("Verlauf nicht gespeichert"); } } else offTouch();
   render(); return id;
 }
+/* ---------- Mails als HTML (Rich Text) für die Zwischenablage ----------
+   Aus dem Mailtext wird HTML: Absätze, Terminlisten als Tabelle je Veranstaltung, Links anklickbar, Zeilenumbrüche erhalten. */
+const MAIL_CSS = {body:"font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#3C3C3B;line-height:1.4",
+  p:"margin:0 0 12px 0", h:"margin:14px 0 4px 0;font-weight:bold;color:#662483",
+  table:"border-collapse:collapse;margin:0 0 12px 0;font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#3C3C3B",
+  th:"text-align:left;padding:4px 14px 4px 0;border-bottom:1px solid #AC3F90;font-weight:bold;color:#662483",
+  td:"padding:4px 14px 4px 0;border-bottom:1px solid #E2DBE8;vertical-align:top", ok:"color:#2E7D4F"};
+const linkify = s => esc(s).replace(/(https?:\/\/[^\s<]+?)(?=[.,;:!?)]?(\s|$))/g, u => `<a href="${u}" style="color:#662483">${u}</a>`);
+function mailHtml(text){
+  const rowRe = /^- (\S+) (\d\d\.\d\d\.\d{4}), (ganztägig|Uhrzeit folgt|[^–]*?Uhr|\d\d:\d\d–\d\d:\d\d Uhr)(.*)$/;
+  const table = rows => { const ps = rows.map(l => { const m = l.match(rowRe); if (!m) return null; const rest = m[4].replace(/^\s*–\s*/, "").trim(); return [m[1] + " " + m[2], m[3], rest]; });
+    if (ps.some(x => !x)) return null;
+    const note = ps.some(x => x[2]);
+    return `<table style="${MAIL_CSS.table}"><tr><th style="${MAIL_CSS.th}">Datum</th><th style="${MAIL_CSS.th}">Uhrzeit</th>${note ? `<th style="${MAIL_CSS.th}">Hinweis</th>` : ""}</tr>`
+      + ps.map(x => `<tr><td style="${MAIL_CSS.td}">${esc(x[0])}</td><td style="${MAIL_CSS.td}">${esc(x[1])}</td>${note ? `<td style="${MAIL_CSS.td}${/zugesagt/.test(x[2]) ? ";" + MAIL_CSS.ok : ""}">${esc(/zugesagt/.test(x[2]) ? "✓ " + x[2] : x[2])}</td>` : ""}</tr>`).join("") + `</table>`; };
+  const out = String(text).split(/\n{2,}/).map(par => {
+    const lines = par.split("\n");
+    const head = lines.length > 1 && /^„.*“$/.test(lines[0]) && lines.slice(1).every(l => l.startsWith("- ")) ? lines[0] : null;
+    const items = head ? lines.slice(1) : lines.every(l => l.startsWith("- ")) ? lines : null;
+    if (items){ const t = table(items); if (t) return (head ? `<p style="${MAIL_CSS.h}">${esc(head)}</p>` : "") + t;
+      return (head ? `<p style="${MAIL_CSS.h}">${esc(head)}</p>` : "") + `<ul style="${MAIL_CSS.p}">${items.map(l => `<li>${linkify(l.slice(2))}</li>`).join("")}</ul>`; }
+    return `<p style="${MAIL_CSS.p}">${lines.map(linkify).join("<br>")}</p>`;
+  }).join("");
+  return `<div style="${MAIL_CSS.body}">${out}</div>`;
+}
+/* Rich Text in die Zwischenablage (HTML + Text); Rückfall: markierten HTML-Block kopieren */
+async function copyRich(html, text){
+  try { if (navigator.clipboard && window.ClipboardItem){ await navigator.clipboard.write([new ClipboardItem({"text/html": new Blob([html], {type:"text/html"}), "text/plain": new Blob([text], {type:"text/plain"})})]); return true; } } catch(e){}
+  try { const d = document.createElement("div"); d.contentEditable = "true"; d.innerHTML = html; d.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0"; document.body.appendChild(d);
+    const rg = document.createRange(); rg.selectNodeContents(d); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(rg); const ok = document.execCommand("copy"); sel.removeAllRanges(); d.remove(); if (ok) return true; } catch(e){}
+  return copyText(text);
+}
+/* Mail öffnen: Empfänger und Betreff im Mailprogramm, Text mit Formatierung in der Zwischenablage */
+async function openMailRich(to, subj, text){
+  const ok = await copyRich(mailHtml(text), text);
+  const a = document.createElement("a"); a.href = "mailto:" + encodeURIComponent(to) + "?subject=" + encodeURIComponent(subj); a.target = "_blank"; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove();
+  toast(ok ? "Mail geöffnet – Text mit Formatierung liegt in der Zwischenablage: in die Mail einfügen (Strg+V / ⌘V), senden, dann „versendet“ klicken" : "Mail geöffnet – Kopieren nicht möglich, bitte „Text kopieren“ nutzen");
+}
+/* Nach „… öffnen“: Nachfrage, ob die Mail versendet wurde – damit „versendet“ nicht vergessen wird */
+function askSent(r, m){
+  let d = document.getElementById("sentask"); if (!d){ d = document.createElement("div"); d.id = "sentask"; d.setAttribute("role", "dialog"); d.setAttribute("aria-modal", "true"); document.body.appendChild(d); }
+  const n = (m.events || []).length;
+  d.innerHTML = `<div class="sa-bg"></div><div class="sa-box"><h3>Wurde die Mail versendet?</h3>
+    <p><b>${esc(m.label)}</b> an <b>${esc(r.name)}</b>${r.email ? " (" + esc(r.email) + ")" : ""}<br><span class="notes">Betreff: ${esc(m.subj)}${n ? " · " + n + " Termin" + (n === 1 ? "" : "e") : ""}</span></p>
+    <p class="notes">Der Text liegt in der Zwischenablage: im Mailprogramm einfügen (Strg+V / ⌘V) und senden. Danach hier bestätigen – dann steht die Mail im Verlauf${m.kind === "term" ? " und die Termine gehen auf „angefragt“" : ""}.</p>
+    <div class="sa-act"><button class="btn primary" data-sentyes="${esc(r.id)}">Ja, versendet</button><button class="btn" data-sentno="1">Noch nicht</button></div></div>`;
+  d.hidden = false; const b = d.querySelector("[data-sentyes]"); if (b) b.focus();
+}
+const closeSentAsk = () => { const d = document.getElementById("sentask"); if (d) d.hidden = true; };
 async function copyText(txt){
   try { await navigator.clipboard.writeText(txt); return true; } catch(e){}
   try { const ta = document.createElement("textarea"); ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); const ok = document.execCommand("copy"); ta.remove(); return ok; } catch(e){ return false; }
@@ -789,14 +924,215 @@ function openMail(to, subj, body){
   const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove();
   toast(copied ? "Mail geöffnet – Text ist in der Zwischenablage, bitte einfügen" : "Mail in Outlook geöffnet – nach dem Senden „versendet“ klicken");
 }
-function viewAnfragen(){
+/* Kontakt als Links: E-Mail öffnet das Mailprogramm, Telefon wählt (mehrere Nummern mit „·“ getrennt) */
+const mailLink = m => m ? `<a class="clink" href="mailto:${esc(m)}">${esc(m)}</a>` : "";
+const telLinks = t => String(t||"").split("·").map(x => x.trim()).filter(Boolean).map(x => `<a class="clink" href="tel:${esc(x.replace(/[^\d+]/g, ""))}">${esc(x)}</a>`).join(" · ");
+const contactCell = r => (r.email ? mailLink(r.email) : `<span class="lv warn">keine E-Mail</span>`) + (r.phone ? `<div class="notes">${telLinks(r.phone)}</div>` : "");
+/* ---------- Terminabstimmung pro Person ----------
+   Jede Person hat ihren eigenen Stand, abgeleitet aus ihren Terminen und dem Nachrichtenverlauf:
+   - Antwort je Termin und Person im Termin: e.refAns[refId] = {a:"ja"|"nein"|"offen", date, start, at, note}
+   - versendete Mails: msgs {dir:"out", kind:"term"|"remind"|"conf", events:[{id,date,start}]}
+   Eine Antwort oder Abfrage gilt nur, solange Datum und Uhrzeit des Termins unverändert sind. */
+const SETTLED = ["zugesagt","fix","in WP angelegt","veröffentlicht"];
+const P_LAB = {ok:"zugesagt", asked:"angefragt", nein:"passt nicht", neu:"noch nicht angefragt"};
+const sameSlot = (x, e) => !!x && x.date === e.date && (x.start || "") === (e.start || "");
+const pMsgs = r => msgsOf(r.id).filter(m => !m.round);
+const pOuts = r => pMsgs(r).filter(m => m.dir === "out" && m.kind);
+const personEvs = r => evList().filter(e => e.kind === "va" && e.status !== "abgesagt" && e.date.startsWith(String(YEAR)) && (e.refs||[]).includes(r.id)).sort(sortEv);
+function evSt(e, r){
+  if (e.fixed) return "ok";
+  const a = (e.refAns || {})[r.id];
+  /* zugesagt, danach aber verschoben → neu abfragen (außer schon fix/online) */
+  if (a && !sameSlot(a, e) && ["Idee","Option","angefragt","zugesagt"].includes(e.status)) return pOuts(r).some(m => (m.kind === "term" || m.kind === "remind") && (m.events||[]).some(x => x.id === e.id && sameSlot(x, e))) ? "asked" : "neu";
+  if (SETTLED.includes(e.status)) return "ok";
+  if (sameSlot(a, e)) return a.a === "ja" ? "ok" : a.a === "nein" ? "nein" : "asked";
+  return pOuts(r).some(m => (m.kind === "term" || m.kind === "remind") && (m.events||[]).some(x => x.id === e.id && sameSlot(x, e))) ? "asked" : "neu";
+}
+const P_STATES = {
+  ans:{t:"Antwort auswerten", c:"in"}, neu:{t:"neu anzuschreiben", c:"open"}, wait:{t:"wartet auf Antwort", c:"sent"},
+  late:{t:"nachfassen", c:"late"}, replan:{t:"Neuplanung nötig", c:"late"}, conf:{t:"alles zugesagt – Bestätigung senden", c:"in"}, done:{t:"bestätigt", c:"done"}
+};
+function personInfo(r){
+  const evs = personEvs(r), by = {ok:[], asked:[], nein:[], neu:[]};
+  evs.forEach(e => by[evSt(e, r)].push(e));
+  const outs = pOuts(r), lastOut = outs[outs.length-1] || null;
+  const ins = pMsgs(r).filter(m => m.dir === "in" && m.kind === "term"), lastIn = ins[ins.length-1] || null;
+  const pendIn = lastIn && !lastIn.applied && (!lastOut || lastIn.at > lastOut.at);
+  const lastAsk = [...outs].reverse().find(m => m.kind === "term" || m.kind === "remind");
+  const since = [lastAsk && lastAsk.at, lastIn && lastIn.at].filter(Boolean).sort().pop();
+  const days = since ? Math.floor((Date.now() - new Date(since).getTime()) / 864e5) : 0;
+  const partial = !!(lastIn && lastIn.applied && lastAsk && lastIn.at > lastAsk.at);
+  const confSnap = lastOut && lastOut.kind === "conf" ? (lastOut.events||[]) : null;
+  const confOk = confSnap && evs.filter(e => e.date >= todayStr()).every(e => confSnap.some(x => x.id === e.id && sameSlot(x, e)));
+  let state;
+  if (pendIn) state = "ans";
+  else if (by.neu.length) state = "neu";
+  else if (by.asked.length) state = days >= NACHFASS_TAGE ? "late" : "wait";
+  else if (by.nein.length) state = "replan";
+  else state = confOk ? "done" : "conf";
+  return {evs, by, outs, lastOut, lastIn, state, days, partial, asked: outs.some(m => m.kind === "term")};
+}
+/* Wen betrifft die Terminabstimmung: alle mit Terminen im Planungsjahr (ohne SURVIVORS HOME Team) */
+const personRefs = () => Object.values(S.referents).filter(r => !isTeamInternal(r) && personEvs(r).length).sort(byRefName);
+
+/* Mailtexte (immer Du- bzw. Ihr-Form) */
+const pGroups = (evs, okIds) => { const g = new Map();
+  evs.slice().sort(sortEv).forEach(e => { const k = e.seriesId || ("t:" + evName(e)); if (!g.has(k)) g.set(k, []); g.get(k).push(e); });
+  return [...g.values()].map(es => { const ts = [...new Set(es.map(evName))], lab = ts.length === 1 ? ts[0] : ((S.series[es[0].seriesId]||{}).name || ts[0]);
+    return {lab, lines: es.map(e => termLine(e) + (evName(e) !== lab ? " (" + termPart(evName(e)) + ")" : "") + (okIds && okIds.has(e.id) ? " – bereits zugesagt" : ""))}; }); };
+const pList = (evs, ok) => termList(pGroups(ok && ok.length ? evs.concat(ok) : evs, ok && ok.length ? new Set(ok.map(e => e.id)) : null));
+const pNames = evs => pGroups(evs).map(g => "„" + g.lab + "“").join(" und ");
+function pMail(r, sender){
+  const I = personInfo(r), team = isGroup(r), du = (a, b) => team ? b : a, hi = termGreet(r) + "\n\n", sig = "\n\n" + termSig(sender);
+  const ask = I.by.neu.concat(I.by.asked).sort(sortEv), okF = I.by.ok.filter(e => e.date >= todayStr()); /* zugesagt und noch nicht vorbei */
+  const snap = es => es.map(e => ({id:e.id, date:e.date, start:e.start||""}));
+  if (I.state === "neu"){
+    if (!I.asked){ const m = termTextFor(r, sender, ask, okF); return {kind:"term", label:"Terminabfrage", subj:m.subj, body:m.body, events:snap(ask)}; }
+    const one = ask.length === 1, P = [];
+    const answered = pMsgs(r).some(m => m.dir === "in" && m.kind === "term");
+    P.push(answered ? du("vielen Dank für deine Rückmeldung zu unseren Terminvorschlägen!", "vielen Dank für eure Rückmeldung zu unseren Terminvorschlägen!") : du("wir haben unsere Planung für " + YEAR + " noch einmal überarbeitet.", "wir haben unsere Planung für " + YEAR + " noch einmal überarbeitet."));
+    P.push((okF.length ? (one ? "Für den noch offenen Termin haben wir noch einmal geplant. Hier die Übersicht, die schon zugesagten Termine sind vermerkt:" : "Für die noch offenen Termine haben wir noch einmal geplant. Hier die Übersicht, die schon zugesagten Termine sind vermerkt:") : (one ? "Hier unser Vorschlag:" : "Hier unsere Vorschläge:")) + "\n\n" + pList(ask, okF));
+    P.push(du((one ? "Passt dir der " + (okF.length ? "noch offene " : "") + "Termin? Wenn er nicht geht" : "Passen dir die " + (okF.length ? "noch offenen " : "") + "Termine? Wenn ein Termin nicht geht") + " oder noch unsicher ist, schreib es einfach dazu. Für eigene Vorschläge hilft ein Blick in unseren Belegungsplan: " + BELEG_URL,
+      (one ? "Passt euch der " + (okF.length ? "noch offene " : "") + "Termin? Wenn er nicht geht" : "Passen euch die " + (okF.length ? "noch offenen " : "") + "Termine? Wenn ein Termin nicht geht") + " oder noch unsicher ist, schreibt es einfach dazu. Für eigene Vorschläge hilft ein Blick in unseren Belegungsplan: " + BELEG_URL));
+    P.push(du("Danke für deine Geduld bei der Abstimmung – wir freuen uns auf ein schönes Jahr mit dir im Home!", "Danke für eure Geduld bei der Abstimmung – wir freuen uns auf ein schönes Jahr mit euch im Home!"));
+    return {kind:"term", label:"neue Vorschläge", subj:"SURVIVORS HOME – " + du("deine", "eure") + " Termine " + YEAR + ": " + (one ? "neuer Vorschlag" : "neue Vorschläge"), body: hi + P.join("\n\n") + sig, events:snap(ask)};
+  }
+  if (I.state === "wait" || I.state === "late"){
+    const es = I.by.asked, one = es.length === 1;
+    const o = okF.length ? (one ? "noch offene " : "noch offenen ") : "";
+    const body = hi + du("kurze Erinnerung an meine Nachricht zu deinen Terminen " + YEAR + ": " + (one ? "Passt dir der " + o + "Termin?" : "Passen dir die " + o + "Termine?"), "kurze Erinnerung an unsere Nachricht zu euren Terminen " + YEAR + ": " + (one ? "Passt euch der " + o + "Termin?" : "Passen euch die " + o + "Termine?"))
+      + " Ein kurzes „passt“, „passt nicht“ oder „noch offen“ reicht völlig. Hier noch einmal die Übersicht" + (okF.length ? ", die schon zugesagten Termine sind vermerkt" : "") + ":\n\n" + pList(es, okF) + sig;
+    return {kind:"remind", label:"Erinnerung", subj:"Erinnerung: SURVIVORS HOME – " + du("deine", "eure") + " Termine " + YEAR, body, events:snap(es)};
+  }
+  if (I.state === "conf" || I.state === "done"){
+    const es = I.evs.filter(e => e.date >= todayStr()), one = es.length === 1;
+    const P = [du("schön, dass alles passt! ", "schön, dass alles passt! ") + (one ? "Hier dein Termin " + YEAR + ", so steht er jetzt fest in unserem Programm:" : du("Hier noch einmal alle deine Termine " + YEAR + " im Überblick, so stehen sie jetzt fest in unserem Programm:", "Hier noch einmal alle eure Termine " + YEAR + " im Überblick, so stehen sie jetzt fest in unserem Programm:")),
+      pList(es),
+      du("Sollte sich bei dir etwas ändern, gib uns bitte so früh wie möglich Bescheid. Etwa acht Wochen vor jedem Termin veröffentlichen wir ihn auf unserer Website.", "Sollte sich bei euch etwas ändern, gebt uns bitte so früh wie möglich Bescheid. Etwa acht Wochen vor jedem Termin veröffentlichen wir ihn auf unserer Website."),
+      du("Von Herzen danke, dass du " + (pGroups(es).length === 1 ? "dein Angebot " + pNames(es) : "deine Angebote") + " ins Home bringst. Wir freuen uns auf ein schönes Jahr mit dir!", "Von Herzen danke, dass ihr " + (pGroups(es).length === 1 ? "euer Angebot " + pNames(es) : "eure Angebote") + " ins Home bringt. Wir freuen uns auf ein schönes Jahr mit euch!")];
+    return {kind:"conf", label:"Bestätigung", subj:"SURVIVORS HOME – " + du("deine", "eure") + " Termine " + YEAR + " stehen fest", body: hi + P.join("\n\n") + sig, events:snap(es)};
+  }
+  return null;
+}
+/* Erste Terminabfrage: Text wie abgestimmt (termText), mit der übergebenen Terminliste */
+const termTextFor = (r, sender, evs, ok) => termText(r, sender, evs, ok);
+
+/* Ansicht */
+function viewPersonen(head){
+  const all = personRefs().map(r => ({r, I:personInfo(r)}));
+  const none = Object.values(S.referents).filter(r => !isTeamInternal(r) && !personEvs(r).length).sort(byRefName);
+  const n = k => k === "ohne" ? none.length : all.filter(x => x.I.state === k).length;
+  if (UI.pFilt && UI.pFilt !== "alle" && !n(UI.pFilt)) UI.pFilt = "alle"; /* leerer Filter → zurück auf „Alle“ */
+  const f = UI.pFilt || "alle";
+  /* Filter ohne Treffer werden ausgeblendet */
+  const fb = (k, l) => k !== "alle" && !n(k) ? "" : `<button class="btn ${f === k ? "primary" : ""}" data-pfilt="${k}">${l} (${k === "alle" ? all.length : n(k)})</button>`;
+  const list = all.filter(x => f === "alle" || x.I.state === f);
+  if (f === "ohne") return head + `<div class="filters">${fb("alle","Alle mit Terminen")}${fb("neu","neu anzuschreiben")}${fb("wait","wartet")}${fb("late","nachfassen")}${fb("ans","Antwort auswerten")}${fb("replan","Neuplanung nötig")}${fb("conf","Bestätigung senden")}${fb("done","bestätigt")}${fb("ohne","ohne Termine " + YEAR)}</div><div class="scroll"><table class="list"><thead><tr><th>Name</th><th>Reihen</th><th>Kontakt</th></tr></thead><tbody>${none.map(r => `<tr class="click" data-ref="${r.id}"><td><b>${esc(r.name)}</b><div class="notes">${esc(r.role||"")}</div></td><td>${esc(Object.values(S.series).filter(s => (s.refs||[]).includes(r.id)).map(s => s.name + (s.active === false ? " (pausiert)" : "")).join(", ") || "–")}</td><td class="ccell">${r.email ? mailLink(r.email) : "–"}${r.phone ? "<br>" + telLinks(r.phone) : ""}</td></tr>`).join("")}</tbody></table></div>`;
+  const cnt = I => ["ok","asked","nein","neu"].filter(k => I.by[k].length).map(k => `${I.by[k].length} ${P_LAB[k]}`).join(" · ");
+  const chip = (e, st, rid) => `<span class="lv ${st === "ok" ? "info" : st === "nein" ? "err" : st === "neu" ? "warn" : ""}" style="${st === "ok" ? "color:var(--ok)" : st === "asked" ? "background:var(--surface-2)" : ""}" title="${esc(evName(e) + " · " + P_LAB[st] + (((e.refAns||{})[rid]||{}).note ? " · " + e.refAns[rid].note : ""))}">${st === "ok" ? "✓ " : st === "nein" ? "✗ " : st === "neu" ? "● " : "… "}${esc(WD[wdOf(e.date)] + " " + fmt(e.date) + (e.start ? " " + e.start : ""))}</span>`;
+  const rows = list.map(({r, I}) => {
+    const mail = !!r.email, st = P_STATES[I.state], pm = ["neu","wait","late","conf","done"].includes(I.state);
+    const lab = I.state === "neu" ? (I.asked ? "neue Vorschläge" : "Terminabfrage") : I.state === "conf" || I.state === "done" ? "Bestätigung" : "Erinnerung";
+    const act = [
+      pm && mail ? `<button class="btn sm${I.state === "wait" || I.state === "done" ? " ghost" : ""}" data-pmail="${r.id}">${lab} öffnen</button>` : "",
+      pm ? `<button class="btn ghost sm" data-pcopy="${r.id}">Text kopieren</button>` : "",
+      pm ? `<button class="btn ghost sm" data-psent="${r.id}" data-ch="${mail ? "Mail" : "Telefon"}" title="${esc(lab + " als versendet eintragen")}">${mail ? "versendet" : "angerufen"}</button>` : "",
+      pm && !mail ? `<button class="btn ghost sm" data-psent="${r.id}" data-ch="Ausdruck">übergeben</button>` : "",
+      `<button class="btn ${I.state === "ans" ? "" : "ghost "}sm" data-pans="${r.id}">${I.state === "ans" ? "Antwort auswerten" : "Antwort einfügen"}</button>`,
+      `<button class="btn ghost sm" data-pevs="${r.id}">Termine (${I.evs.length})</button>`,
+      `<button class="btn ghost sm" data-rhist="${r.id}">Verlauf (${msgsOf(r.id).length})</button>`
+    ].join("");
+    const when = I.state === "ans" ? I.lastIn.at : I.lastOut ? I.lastOut.at : "";
+    return `<tr><td class="pcell" data-ref="${r.id}" role="button" tabindex="0" title="Person öffnen: Kontakt, Einstellungen, Termine, Verlauf"><b class="rlink">${esc(r.name)}</b><div class="notes">${esc([...new Set(I.evs.map(e => (S.series[e.seriesId]||{}).name || evName(e)))].join(", "))}</div></td><td class="ccell">${contactCell(r)}</td>
+      <td><span class="rst ${st.c}">${esc((I.state === "wait" || I.state === "late") && I.partial ? "Rückmeldung da – " + I.by.asked.length + " noch offen" + (I.state === "late" ? ", nachfassen" : "") : I.state === "late" ? "nachfassen (seit " + I.days + " Tagen)" : st.t)}</span>${when ? `<div class="notes">${esc((I.state === "ans" ? "Antwort " : I.lastOut.kind === "conf" ? "Bestätigung " : I.lastOut.kind === "remind" ? "Erinnerung " : "angefragt ") + fmtAt(when))}</div>` : ""}<div class="notes">${esc(cnt(I))}</div></td><td class="ract">${act}</td></tr>
+      ${UI.pOpen === r.id ? `<tr class="rhist"><td colspan="4"><div class="iss">${I.evs.map(e => chip(e, evSt(e, r), r.id)).join(" ")}</div>${I.evs.some(e => ((e.refAns||{})[r.id]||{}).note) ? `<div class="notes" style="margin-top:6px">${I.evs.filter(e => ((e.refAns||{})[r.id]||{}).note).map(e => esc(fmt(e.date) + ": " + e.refAns[r.id].note)).join(" · ")}</div>` : ""}</td></tr>` : ""}
+      ${UI.histOpen === r.id ? `<tr class="rhist"><td colspan="4">${histHtml(r)}</td></tr>` : ""}`;
+  }).join("");
+  return head + `<div class="filters">${fb("alle","Alle mit Terminen")}${fb("neu","neu anzuschreiben")}${fb("wait","wartet")}${fb("late","nachfassen")}${fb("ans","Antwort auswerten")}${fb("replan","Neuplanung nötig")}${fb("conf","Bestätigung senden")}${fb("done","bestätigt")}${fb("ohne","ohne Termine " + YEAR)}</div>`
+    + (list.length ? `<div class="scroll"><table class="list rtab ptab"><colgroup><col class="c-p"><col class="c-k"><col><col></colgroup><thead><tr><th>Person / Angebote</th><th>Kontakt</th><th>Stand ${YEAR}</th><th>Aktionen</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty">Niemand in dieser Auswahl.</div>`);
+}
+
+/* Versand eintragen: Mail mit Terminliste im Verlauf, abgefragte Termine auf „angefragt“ */
+async function pSent(r, ch){
+  const m = pMail(r, senderName()); if (!m) return;
+  await logMsg({round:"", ref:r.id, dir:"out", kind:m.kind, channel:ch, subject:m.subj, text:m.body, events:m.events});
+  if (m.kind === "term") for (const x of m.events){ const e = S.events[x.id]; if (e && ["Idee","Option"].includes(e.status)){ const o = Object.assign({}, e, {status:"angefragt"}); if (await put("events", e.id, o)) S.events[e.id] = o; } }
+  render(); toast(m.label + (ch === "Mail" ? " als versendet" : ch === "Telefon" ? " als Anruf" : " als Übergabe") + " eingetragen" + (m.kind === "term" ? " – Termine stehen jetzt auf „angefragt“" : ""));
+}
+
+/* Antwort-Dialog: Antwort je Termin (Claude kann vorbelegen) */
+function pansForm(rid){
+  const r = S.referents[rid], I = personInfo(r), es = I.evs.filter(e => evSt(e, r) !== "ok" || ((e.refAns||{})[rid]));
+  const pre = UI.pPre || {};
+  const row = e => { const cur = pre[e.id] || (sameSlot((e.refAns||{})[rid], e) ? e.refAns[rid] : null), a = cur ? cur.a : "", nt = cur ? (cur.note || cur.notiz || "") : "";
+    return `<div class="avr" style="flex-wrap:wrap"><span style="min-width:12em"><b>${esc(WD[wdOf(e.date)] + " " + fmtY(e.date))}</b> ${esc(e.start || "")}<br><span class="notes">${esc(evName(e))} · ${esc(P_LAB[evSt(e, r)])}</span></span>
+      <span class="seg" role="group">${[["ja","passt"],["nein","passt nicht"],["offen","offen"]].map(([k, l]) => `<label class="btn sm" style="margin:0"><input type="radio" name="pa_${e.id}" value="${k}" ${a === k ? "checked" : ""}> ${l}</label>`).join("")}</span>
+      <input class="in" data-pnote="${e.id}" placeholder="Notiz / Alternativvorschlag" value="${esc(nt)}" style="flex:1;min-width:12em"></div>`; };
+  const body = `<div class="notes">Antwort-Mail (oder Notiz zum Telefonat) hineinkopieren. „Mit Claude vorbelegen“ trägt passt / passt nicht / offen je Termin ein – bitte prüfen, dann übernehmen. „passt“ macht den Termin „zugesagt“ (bei mehreren Referenten, sobald alle zugesagt haben), „passt nicht“ erscheint in der Prüfung als Fehler zum Neuplanen.</div>
+   <form class="form" id="fa"><label class="full">Antworttext<textarea id="aText" rows="7">${esc(UI.pText || (I.lastIn && !I.lastIn.applied ? I.lastIn.text : ""))}</textarea></label>
+   <label>Eingang am<input type="date" id="aDate" value="${esc(todayStr())}"></label><label>Art<select id="aCh">${opt(["Mail","Telefon","persönlich"], "Mail")}</select></label></form>
+   <div class="ansbar"><button type="button" class="btn" data-pparse="1">Mit Claude vorbelegen</button></div>
+   ${UI.pSum ? `<div class="notes"><b>Claude:</b> ${esc(UI.pSum)}</div>` : ""}
+   <div class="pres" style="padding:0">${es.length ? es.map(row).join("") : `<div class="notes">Keine offenen Termine.</div>`}</div>
+   <div class="ansbar"><button type="button" class="btn primary" data-papply="1">Übernehmen</button><button type="button" class="btn" data-psave="1">Nur Antwort speichern</button></div>`;
+  return shell("Antwort von " + (r ? r.name : ""), body, `<button class="btn ghost" data-close="1">Schließen</button>`);
+}
+const P_PROMPT = (r, list, text) => `Du wertest die Antwort von ${r.name} auf Terminvorschläge für ${YEAR} aus. Heute: ${todayStr()}.
+Vorgeschlagene Termine (id | Datum | Zeit | Veranstaltung):
+${list.map(e => e.id + " | " + WD[wdOf(e.date)] + " " + fmtY(e.date) + " | " + (e.start || "") + " | " + evName(e)).join("\n")}
+Ordne jedem Termin zu: "ja" (passt), "nein" (passt nicht) oder "offen" (unsicher oder nicht erwähnt). Schreibt die Person, dass alles passt, sind alle "ja". Nichts erfinden.
+Antworte ausschließlich mit JSON: {"antworten":[{"id":"…","a":"ja"|"nein"|"offen","notiz":"kurz, z. B. Grund oder Alternativvorschlag, sonst leer"}],"zusammenfassung":"ein Satz"}
+
+Antworttext:
+"""${text}"""`;
+async function pParse(){
+  const rid = UI.drawer.id, r = S.referents[rid], text = $("#aText").value.trim(); if (!text) return toast("Bitte zuerst den Antworttext einfügen");
+  const es = personInfo(r).evs.filter(e => evSt(e, r) !== "ok" || ((e.refAns||{})[rid]));
+  const sample = window.claude && window.claude.use ? await window.claude.use("sample").catch(() => null) : null;
+  if (!sample) return toast("Vorbelegen hier nicht verfügbar – bitte je Termin selbst auswählen");
+  toast("Claude liest die Antwort …");
+  try { const res = await sample.json(P_PROMPT(r, es, text), {modelTier:"default"}) || {}; UI.pPre = {}; (res.antworten||[]).forEach(x => { if (x && x.id) UI.pPre[x.id] = {a:["ja","nein","offen"].includes(x.a) ? x.a : "offen", note:x.notiz || ""}; });
+    UI.pSum = res.zusammenfassung || ""; UI.pText = text; $("#drawer").innerHTML = pansForm(rid); }
+  catch(e){ toast("Auswertung fehlgeschlagen – bitte je Termin selbst auswählen"); }
+}
+async function pApply(save){
+  const rid = UI.drawer.id, r = S.referents[rid], text = $("#aText").value.trim(), at = ($("#aDate").value || todayStr()) + "T" + new Date().toTimeString().slice(0,8);
+  const picks = {}; document.querySelectorAll("#drawer input[type=radio]:checked").forEach(x => { picks[x.name.slice(3)] = {a:x.value}; });
+  document.querySelectorAll("#drawer [data-pnote]").forEach(x => { const id = x.dataset.pnote; if (x.value.trim()){ picks[id] = picks[id] || {a:"offen"}; picks[id].note = x.value.trim(); } });
+  if (!save && !Object.keys(picks).length) return toast("Bitte je Termin passt / passt nicht / offen wählen");
+  if (!text && save) return toast("Kein Text");
+  if (!save){ for (const [id, p] of Object.entries(picks)){ const e = S.events[id]; if (!e) continue;
+      const o = Object.assign({}, e, {refAns: Object.assign({}, e.refAns || {}, {[rid]: {a:p.a, date:e.date, start:e.start || "", at, note:p.note || ""}})});
+      const refs = (o.refs||[]).filter(x => S.referents[x] && !isTeamInternal(S.referents[x]));
+      if (DISCUSS.includes(o.status) && refs.length && refs.every(x => sameSlot(o.refAns[x], o) && o.refAns[x].a === "ja")) o.status = "zugesagt";
+      if (await put("events", id, o)) S.events[id] = o; } }
+  const nJa = Object.values(picks).filter(p => p.a === "ja").length, nNo = Object.values(picks).filter(p => p.a === "nein").length;
+  const mo = {round:"", ref:rid, dir:"in", kind:"term", channel:$("#aCh").value, text: text || "(ohne Text eingetragen)", at, applied:!save, answers: save ? null : picks,
+    summary: save ? "" : (UI.pSum ? UI.pSum + " · " : "") + nJa + " passt, " + nNo + " passt nicht, " + (Object.keys(picks).length - nJa - nNo) + " offen"};
+  const li = personInfo(r).lastIn;
+  if (li && !li.applied && li.text === mo.text){ const o = Object.assign({}, li, mo, {id:li.id, at:li.at, by:li.by || senderName()}); if (await put("msgs", li.id, o)) S.msgs = Object.assign({}, S.msgs, {[li.id]: o}); }
+  else await logMsg(mo);
+  UI.pPre = null; UI.pSum = ""; UI.pText = ""; closeDrawer(); render(); toast(save ? "Antwort gespeichert" : "Antwort übernommen: " + nJa + " passt, " + nNo + " passt nicht");
+}
+
+/* Reiter „Referenten“: Abstimmung (Standard) · Stammdaten · Verfügbarkeitsabfrage */
+function viewReferenten(){
+  const mode = UI.anfMode === "verf" ? "verf" : "pers";
+  const seg = `<span class="seg" role="group" aria-label="Ansicht"><button class="btn ${mode === "pers" ? "primary" : ""}" data-amode="pers">Terminabstimmung</button><button class="btn ${mode === "verf" ? "primary" : ""}" data-amode="verf">Vorabfrage Verfügbarkeit</button></span>`;
+  const sender = `<label class="notes">Absender <select class="in" id="fSender"><option value="">– wählen –</option>${opt(["Kati","Sebastian"], UI.sender)}</select></label>`;
+  if (mode === "verf") return viewRunden(seg);
+  const help = `<b>Referenten – Terminabstimmung</b><ul><li>Klick auf den Namen öffnet die Person in einem großen Dialog: Kontakt, Anrede, Einschränkungen, Verfügbarkeiten, Termine ${YEAR} mit Abstimmungsstand und Nachrichtenverlauf. „+ Referent“ legt eine neue Person an.</li><li>„Vorabfrage Verfügbarkeit“ zeigt die Runde vom Jahresbeginn (wann jemand nicht kann).</li><li>Der Zähler am Reiter zeigt, wie viele Personen gerade einen Schritt brauchen (neu anzuschreiben, nachfassen, Antwort auswerten).</li><li>Jede Person hat ihren eigenen Stand – er ergibt sich aus ihren Terminen ${YEAR} und dem Verlauf. Die Schaltfläche zeigt immer den nächsten Schritt.</li><li><b>neu anzuschreiben</b>: Termine, die noch nie abgefragt wurden oder seit der letzten Mail verschoben wurden. „Terminabfrage öffnen“ erzeugt die Mail mit genau diesen Terminen; nach einer ersten Antwort heißen sie „neue Vorschläge“ und die bereits zugesagten Termine stehen zur Bestätigung mit drin.</li><li>Nach dem Senden <b>„versendet“</b> klicken: die Mail kommt in den Verlauf, die Termine gehen von Idee/Option auf „angefragt“.</li><li><b>wartet</b> / <b>nachfassen</b> (nach ${NACHFASS_TAGE} Tagen): fertige Erinnerung mit den offenen Terminen.</li><li><b>Antwort einfügen</b>: Text hineinkopieren, „Mit Claude vorbelegen“ trägt je Termin passt / passt nicht / offen ein – prüfen, „Übernehmen“. passt → Termin „zugesagt“ (bei mehreren Referenten, wenn alle zugesagt haben). passt nicht → Fehler in der Prüfung „neu planen“, die Person steht auf „Neuplanung nötig“.</li><li>Nach einem Planungslauf: verschobene Termine gelten wieder als „neu“, die Person erscheint unter „neu anzuschreiben“.</li><li><b>Bestätigung senden</b>: wenn alle Termine einer Person zugesagt sind – Mail mit allen Terminen ${YEAR}. Ändert sich danach etwas, erscheint sie wieder.</li><li>Nur Termine mit Status Idee, Option oder angefragt werden abgefragt; zugesagte, fixe, veröffentlichte und als „fester Termin“ markierte gelten als zugesagt.</li></ul>`;
+  const head = `<div class="head"><h2>Referenten ${qh(help)}</h2><div class="tools">${seg}${sender}<button class="btn primary" data-newref="1">+ Referent</button></div></div>`;
+  return viewPersonen(head);
+}
+function viewRunden(seg){
   const rounds = Object.values(S.rounds||{}).sort((a,b) => (b.created||"").localeCompare(a.created||""));
   if (!UI.round || !S.rounds[UI.round]) UI.round = rounds[0] ? rounds[0].id : null;
   const rd = UI.round && S.rounds[UI.round];
-  const help = `<b>Anfragen an Referenten</b><ul><li><b>Absender</b> oben wählen – er steht unter jeder Mail und im Verlauf.</li><li><b>Mail öffnen</b> öffnet in Outlook eine fertige Mail (Empfänger, Betreff, Text). Ist der Text zu lang für den Mail-Link, liegt er in der Zwischenablage zum Einfügen.</li><li>Nach dem Senden <b>„versendet“</b> klicken – erst dann steht die Nachricht im Verlauf.</li><li>Ohne E-Mail-Adresse: <b>Text kopieren</b> für Anruf oder Ausdruck, danach „angerufen“ bzw. „übergeben“.</li><li><b>Antwort einfügen</b>: Text der Antwort (oder Gesprächsnotiz) hineinkopieren, Claude schlägt Abwesenheiten, Einschränkungen und Wunschanzahl vor; prüfen und übernehmen. Übernommene Einschränkungen prüft das Tool ab dann bei jedem Termin.</li><li><b>nachfassen</b>: ${NACHFASS_TAGE} Tage nach dem Versand ohne Antwort – mit fertiger Erinnerungsmail.</li><li><b>Verlauf</b>: alle gesendeten und empfangenen Nachrichten je Person mit Datum und Absender (auch im Referenten-Dialog).</li></ul>`;
-  const head = `<div class="head"><h2>Anfragen ${qh(help)}</h2><div class="tools"><label class="notes">Absender <select class="in" id="fSender"><option value="">– wählen –</option>${opt(["Kati","Sebastian"], UI.sender)}</select></label>${rounds.length ? `<select class="in" id="fRound">${rounds.map(x => `<option value="${x.id}" ${x.id===UI.round?"selected":""}>${esc(x.name)}</option>`).join("")}</select>` : ""}<button class="btn primary" data-newround="verf">+ Runde Verfügbarkeit</button></div></div>`;
+  const help = `<b>Vorabfrage Verfügbarkeit</b><ul><li>Runde für alle zu Jahresbeginn – fragt vorab, wann jemand nicht kann. Die Abstimmung konkreter Termine läuft unter „Terminabstimmung“ pro Person.</li><li><b>Absender</b> oben wählen – er steht unter jeder Mail und im Verlauf.</li><li><b>Mail öffnen</b> öffnet in Outlook eine fertige Mail (Empfänger, Betreff, Text). Ist der Text zu lang für den Mail-Link, liegt er in der Zwischenablage zum Einfügen.</li><li>Nach dem Senden <b>„versendet“</b> klicken – erst dann steht die Nachricht im Verlauf.</li><li>Ohne E-Mail-Adresse: <b>Text kopieren</b> für Anruf oder Ausdruck, danach „angerufen“ bzw. „übergeben“.</li><li><b>Antwort einfügen</b>: Text der Antwort (oder Gesprächsnotiz) hineinkopieren, Claude schlägt Abwesenheiten, Einschränkungen und Wunschanzahl vor; prüfen und übernehmen. Übernommene Einschränkungen prüft das Tool ab dann bei jedem Termin.</li><li><b>nachfassen</b>: ${NACHFASS_TAGE} Tage nach dem Versand ohne Antwort – mit fertiger Erinnerungsmail.</li><li><b>Verlauf</b>: alle gesendeten und empfangenen Nachrichten je Person mit Datum und Absender (auch im Referenten-Dialog).</li></ul>`;
+  const head = `<div class="head"><h2>Referenten ${qh(help)}</h2><div class="tools">${seg}<label class="notes">Absender <select class="in" id="fSender"><option value="">– wählen –</option>${opt(["Kati","Sebastian"], UI.sender)}</select></label>${rounds.length ? `<select class="in" id="fRound">${rounds.map(x => `<option value="${x.id}" ${x.id===UI.round?"selected":""}>${esc(x.name)}</option>`).join("")}</select>` : ""}<button class="btn primary" data-newround="verf">+ Runde Verfügbarkeit</button></div></div>`;
   if (!rd) return head + `<div class="empty">Noch keine Runde angelegt. „+ Runde Verfügbarkeit“ legt die Vorabfrage für ${YEAR} an.</div>`;
-  const refs = roundRefs(), st = refs.map(r => ({r, s:roundState(r, rd)}));
+  const refs = roundRefs(rd), st = refs.map(r => ({r, s:roundState(r, rd)}));
   const cnt = k => st.filter(x => x.s.k === k).length;
   const rows = st.map(({r, s}) => {
     const mail = !!r.email, tel = r.phone || "";
@@ -809,10 +1145,10 @@ function viewAnfragen(){
       `<button class="btn ghost sm" data-rans="${r.id}">Antwort einfügen</button>`,
       `<button class="btn ghost sm" data-rhist="${r.id}">Verlauf (${msgsOf(r.id).length})</button>`
     ].join("");
-    return `<tr><td><b>${esc(r.name)}</b><div class="notes">${esc(refSeries(r).join(", ") || "Einzeltermine")}</div></td><td>${mail ? esc(r.email) : `<span class="lv warn">keine E-Mail</span>`}${tel ? `<div class="notes">${esc(tel)}</div>` : ""}</td><td><span class="rst ${s.k}">${esc(s.t)}</span>${s.d ? `<div class="notes">${esc(fmtAt(s.d))}</div>` : ""}</td><td class="ract">${act}</td></tr>
+    return `<tr><td><b>${esc(r.name)}</b><div class="notes">${esc(refSeries(r).join(", ") || "Einzeltermine")}${rdType(rd) === "term" ? " · " + termOf(r).length + " Termin" + (termOf(r).length === 1 ? "" : "e") + " zur Besprechung" : ""}</div></td><td class="ccell">${contactCell(r)}</td><td><span class="rst ${s.k}">${esc(s.t)}</span>${s.d ? `<div class="notes">${esc(fmtAt(s.d))}</div>` : ""}</td><td class="ract">${act}</td></tr>
       ${UI.histOpen === r.id ? `<tr class="rhist"><td colspan="4">${histHtml(r)}</td></tr>` : ""}`;
   }).join("");
-  return head + `<div class="filters"><span class="notes"><b>${esc(rd.name)}</b> · angelegt ${esc(fmtAt(rd.created))}${rd.by ? " von " + esc(rd.by) : ""} · ${refs.length} Personen: ${cnt("open")} offen · ${cnt("sent")} wartet · <b class="rlate">${cnt("late")} nachfassen</b> · ${cnt("in")} Antwort da · ${cnt("done")} ausgewertet</span></div>
+  return head + `<div class="filters"><span class="notes"><b>${esc(rd.name)}</b> (${esc(RTYPES[rdType(rd)] || "")}) · angelegt ${esc(fmtAt(rd.created))}${rd.by ? " von " + esc(rd.by) : ""} · ${refs.length} Personen${[["open","offen"],["sent","wartet"],["late","nachfassen"],["in","Antwort da"],["done","ausgewertet"]].filter(([k]) => cnt(k)).map(([k, l], i) => (i ? " · " : ": ") + (k === "late" ? `<b class="rlate">${cnt(k)} ${l}</b>` : cnt(k) + " " + l)).join("")}</span></div>
   <div class="scroll"><table class="list rtab"><thead><tr><th>Person / Reihen</th><th>Kontakt</th><th>Stand</th><th>Aktionen</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 function histHtml(r){
@@ -912,7 +1248,7 @@ function availIssues(e, r, st, en, add){
 }
 
 /* ---------- Rendern ---------- */
-const VIEWS = {jahr:viewJahr, woche:viewWoche, liste:viewListe, pruefung:viewPruefung, reihen:viewReihen, referenten:viewReferenten, abwesend:viewAbwesend, anfragen:viewAnfragen, sicherung:viewSicherung};
+const VIEWS = {jahr:viewJahr, woche:viewWoche, liste:viewListe, pruefung:viewPruefung, reihen:viewReihen, referenten:viewReferenten, abwesend:viewAbwesend, anfragen:viewReferenten, sicherung:viewSicherung};
 let rq = 0;
 function render(){
   { const tip = document.getElementById("qtip"); if (tip) tip.hidden = true; const zp = document.getElementById("zpop"); if (zp) zp.hidden = true; } cancelAnimationFrame(rq); rq = requestAnimationFrame(() => {
@@ -925,6 +1261,7 @@ function render(){
   { const hs = $("#hslot"), on = S.loaded && UI.view === "jahr" && !UI.mob; hs.hidden = !on; hs.innerHTML = on ? UI.yHead || "" : "";
     if (on){ const a = $("#app .ybody"), b = hs.querySelector(".yhs"); if (a && b){ b.scrollLeft = a.scrollLeft; a.onscroll = () => { b.scrollLeft = a.scrollLeft; }; } } }
   window.scrollTo(0, y);
+  if (UI.restoreY != null){ window.scrollTo(0, UI.restoreY); UI.restoreY = null; }
   if (UI.yRestore && S.loaded && UI.view === "jahr" && !UI.mob){ UI.yRestore = false; if (UI.yPos) yScrollTo(UI.yPos, false); }
   markSel();
   if (UI.mob) mobFit();
@@ -978,11 +1315,12 @@ function openDrawer(kind, id, preset, back){
   if (kind === "ev" && UI.week0 == null) UI.week0 = UI.week || "";
   UI.drawer = {kind, id, preset, back}; UI.dirty = false; UI.dirtyOk = false;
   UI.selEv = kind === "ev" && id ? id : (back && back.kind === "ev" ? back.id : null); markSel();
-  const dr = $("#drawer"); dr.hidden = false; $("#scrim").hidden = false; document.body.classList.add("dopen"); document.body.classList.toggle("dwide", kind === "ser" || kind === "ev"); document.body.classList.toggle("dev", kind === "ev"); dr.classList.add("dser");
+  const dr = $("#drawer"); dr.hidden = false; $("#scrim").hidden = false; document.body.classList.add("dopen"); document.body.classList.toggle("dwide", kind === "ser" || kind === "ev" || kind === "ref"); document.body.classList.toggle("dref", kind === "ref"); document.body.classList.toggle("dev", kind === "ev"); dr.classList.add("dser");
   if (kind === "ev") dr.innerHTML = evForm(id ? S.events[id] : Object.assign({id:null, kind:"va", status:"Idee", dur:90}, preset||{}));
   if (kind === "ser") dr.innerHTML = serForm(id ? S.series[id] : {id:null, quiet:"nein", active:true});
   if (kind === "ref") dr.innerHTML = refForm(id ? S.referents[id] : {id:null});
   if (kind === "ans") dr.innerHTML = ansForm(id);
+  if (kind === "pans") dr.innerHTML = pansForm(id);
   applySecs(dr, kind); hintsToHelp(dr); syncFurn(dr); snapForm();
   const first = dr.querySelector("input,select,textarea"); if (first) first.focus({preventScroll:true});
   refreshLive(); if (kind === "ev" && preset && preset.__dup) weekPreview(true);
@@ -1067,10 +1405,11 @@ document.addEventListener("toggle", ev => {
 const WIDE = () => window.matchMedia("(min-width:1400px)").matches;
 function closeDrawer(saved, keep){
   const had = !!PREV; PREV = null;
+  const retY = UI.dayOnly && !keep && UI.view0 === "liste" ? UI.retY : null; UI.retY = null;
   const fromPr = UI.dayOnly && !keep; if (fromPr){ UI.dayOnly = null; if (UI.view0) UI.view = UI.view0; UI.view0 = null; saved = false; }
   if (!saved){ if (UI.week0 != null && UI.week0 !== "") UI.week = UI.week0; if (UI.view0 != null) UI.view = UI.view0; }
   UI.week0 = null; UI.view0 = null; if (had || fromPr) render();
-  document.body.classList.remove("dopen","dwide","dev"); UI.drawer = null; UI.selEv = null; markSel(); $("#drawer").hidden = true; $("#scrim").hidden = true; $("#drawer").innerHTML = ""; }
+  document.body.classList.remove("dopen","dwide","dev","dref"); UI.drawer = null; UI.selEv = null; markSel(); $("#drawer").hidden = true; $("#scrim").hidden = true; $("#drawer").innerHTML = ""; if (retY != null) UI.restoreY = retY; }
 function shell(title, body, foot, tag){ return `<div class="dh${tag ? " dupd" : ""}"><h3>${tag ? `<span class="dupb">${esc(tag)}</span>` : ""}${esc(title)}</h3><button class="btn ghost" data-close="1" aria-label="Schließen">✕</button></div><div class="db">${body}</div><div class="df">${foot}</div>`; }
 function delBtn(){ return `<button type="button" class="btn danger" data-del="1">Löschen</button><button type="button" class="btn danger" data-delok="1" hidden>Wirklich löschen</button>`; }
 
@@ -1208,8 +1547,9 @@ function refForm(r){
    <label class="full">Notizen<textarea name="notes" rows="3">${esc(r.notes||"")}</textarea></label>
   </form>
   ${r.id ? `<details class="sec full"${(r.avail||[]).length ? " open" : ""}><summary>Verfügbarkeit ${YEAR} aus Abfragen${(r.avail||[]).length ? ' <span class="hint keep">(' + r.avail.length + ')</span>' : ""}</summary>
-   ${(r.avail||[]).length ? (r.avail||[]).map((a,i) => `<div class="avr"><span>${esc(availLabel(a))}</span><span class="notes">${esc(a.src||"")}</span><button type="button" class="btn ghost sm" data-delavail="${r.id}|${i}">entfernen</button></div>`).join("") : `<div class="notes">Noch keine Angaben – kommen über „Anfragen“ → „Antwort einfügen“.</div>`}
+   ${(r.avail||[]).length ? (r.avail||[]).map((a,i) => `<div class="avr"><span>${esc(availLabel(a))}</span><span class="notes">${esc(a.src||"")}</span><button type="button" class="btn ghost sm" data-delavail="${r.id}|${i}">entfernen</button></div>`).join("") : `<div class="notes">Noch keine Angaben – kommen über „Referenten“ → „Vorabfrage Verfügbarkeit“ → „Antwort einfügen“.</div>`}
    ${r.wish != null ? `<div class="notes">Wunschanzahl ${YEAR}: ${esc(r.wish)}</div>` : ""}</details>
+  ${personEvs(r).length ? `<details class="sec full" open><summary>Termine ${YEAR} <span class="hint keep">(${esc(P_STATES[personInfo(r).state].t)})</span></summary><div class="iss" style="padding:4px 0">${personEvs(r).map(e => { const st = evSt(e, r), a = (e.refAns||{})[r.id]; return `<span class="lv ${st === "ok" ? "info" : st === "nein" ? "err" : st === "neu" ? "warn" : ""}" style="${st === "ok" ? "color:var(--ok)" : st === "asked" ? "background:var(--surface-2)" : ""}" title="${esc(evName(e) + " · " + P_LAB[st] + (a && a.note ? " · " + a.note : ""))}">${st === "ok" ? "✓ " : st === "nein" ? "✗ " : st === "neu" ? "● " : "… "}${esc(WD[wdOf(e.date)] + " " + fmt(e.date) + (e.start ? " " + e.start : "") + " " + evName(e))}</span>`; }).join(" ")}</div></details>` : ""}
   <details class="sec full"><summary>Nachrichtenverlauf <span class="hint keep">(${msgsOf(r.id).length})</span></summary>${histHtml(r)}</details>` : ""}`;
   const foot = `<button class="btn primary" data-save="ref">Speichern</button>${r.id?delBtn():""}<button class="btn ghost" data-close="1">Abbrechen</button>`;
   return shell(r.id ? r.name : "Neue Person", body, foot);
@@ -1435,7 +1775,8 @@ async function exportCsv(){
 
 /* ---------- Ereignisse ---------- */
 document.addEventListener("click", async ev => {
-  const t = ev.target.closest("[data-zone],[data-acc],[data-newround],[data-rmail],[data-rcopy],[data-rsent],[data-rremind],[data-rans],[data-rhist],[data-aparse],[data-asave],[data-aapply],[data-delavail],[data-ydet],[data-sernav],[data-evnav],[data-openser],[data-back],[data-quick],[data-view],[data-wk],[data-goweek],[data-ev],[data-new],[data-wnav],[data-wtoday],[data-prback],[data-dayweek],[data-ytoday],[data-alt],[data-bk],[data-ser],[data-newser],[data-ref],[data-newref],[data-close],[data-save],[data-del],[data-delok],[data-dup],[data-gen],[data-take],[data-csv],[data-delabs],[data-serf]");
+  if (ev.target.closest && ev.target.closest("a.clink")) return;
+  const t = ev.target.closest("[data-sentyes],[data-sentno],[data-zone],[data-acc],[data-accg],[data-newround],[data-amode],[data-pfilt],[data-pmail],[data-pcopy],[data-psent],[data-pans],[data-pevs],[data-pparse],[data-papply],[data-psave],[data-rmail],[data-rcopy],[data-rsent],[data-rremind],[data-rans],[data-rhist],[data-aparse],[data-asave],[data-aapply],[data-delavail],[data-ydet],[data-sernav],[data-evnav],[data-openser],[data-back],[data-quick],[data-view],[data-wk],[data-goweek],[data-ev],[data-new],[data-wnav],[data-wtoday],[data-prback],[data-dayweek],[data-ytoday],[data-alt],[data-bk],[data-ser],[data-newser],[data-ref],[data-newref],[data-close],[data-save],[data-del],[data-delok],[data-dup],[data-gen],[data-take],[data-csv],[data-delabs],[data-serf],[data-lpast]");
   const guard = () => { if (UI.drawer && UI.dirty && !UI.dirtyOk){ UI.dirtyOk = true; clearTimeout(UI.dirtyT); UI.dirtyT = setTimeout(() => UI.dirtyOk = false, 4000); toast("Ungespeicherte Änderungen – zum Verwerfen erneut klicken"); return true; } return false; };
   if (!t) {
     if (UI.drawer && !ev.target.closest("#drawer") && !ev.target.closest("input,select,textarea,label,button,a,summary,.qh,#qtip") && !guard()) closeDrawer();
@@ -1444,24 +1785,39 @@ document.addEventListener("click", async ev => {
   const ds = t.dataset;
   if (!t.closest("#drawer") && (ds.ev || ds.ser || ds.ref || ds.new != null || ds.newser || ds.newref) && guard()) return;
   if (ds.zone != null){ return zonePop(+ds.zone, t); }
-  if (ds.newround){ const id = newId("rounds"); const o = {id, type:ds.newround, name:"Verfügbarkeit " + YEAR + (Object.values(S.rounds||{}).some(x => x.type === "verf") ? " (" + todayStr().slice(5).split("-").reverse().join(".") + ")" : ""), created:new Date().toISOString().slice(0,19), by:senderName()};
+  if (ds.newround){ const id = newId("rounds"), ty = ds.newround, base = (ty === "term" ? "Terminabfrage " : "Verfügbarkeit ") + YEAR; const o = {id, type:ty, name:base + (Object.values(S.rounds||{}).some(x => rdType(x) === ty) ? " (" + todayStr().slice(5).split("-").reverse().join(".") + ")" : ""), created:new Date().toISOString().slice(0,19), by:senderName()};
     if (await put("rounds", id, o) || !db){ S.rounds = Object.assign({}, S.rounds, {[id]:o}); UI.round = id; toast("Runde angelegt"); render(); } return; }
   if (ds.rmail || ds.rcopy || ds.rremind){ if (!senderName()) return toast("Bitte oben den Absender wählen");
-    const r = S.referents[ds.rmail || ds.rcopy || ds.rremind]; const m = ds.rremind ? nachfassText(r, senderName()) : verfText(r, senderName());
+    const r = S.referents[ds.rmail || ds.rcopy || ds.rremind]; const m = roundText(r, senderName(), S.rounds[UI.round], !!ds.rremind);
     if (ds.rmail || (ds.rremind && r.email)) return openMail(r.email, m.subj, m.body);
     const ok = await copyText(m.subj + "\n\n" + m.body); toast(ok ? "Text kopiert – zum Vorlesen, Ausdrucken oder Einfügen" : "Kopieren nicht möglich"); return; }
   if (ds.rsent){ if (!senderName()) return toast("Bitte oben den Absender wählen"); const r = S.referents[ds.rsent], rd = S.rounds[UI.round]; if (!r || !rd) return;
-    const late = roundState(r, rd).k === "late", m = late ? nachfassText(r, senderName()) : verfText(r, senderName());
+    const late = roundState(r, rd).k === "late", m = roundText(r, senderName(), rd, late);
     await logMsg({round: rd.id, ref: r.id, dir:"out", channel: ds.ch, subject: m.subj, text: m.body}); toast((ds.ch === "Mail" ? "Als versendet" : ds.ch === "Telefon" ? "Anruf" : "Übergabe") + " im Verlauf eingetragen"); return; }
   if (ds.rans){ UI.parse = null; openDrawer("ans", ds.rans); return; }
+  if (ds.sentno){ closeSentAsk(); toast("Okay – „versendet“ in der Zeile klicken, sobald die Mail raus ist"); return; }
+  if (ds.sentyes){ closeSentAsk(); if (!senderName()) return toast("Bitte oben den Absender wählen"); const r = S.referents[ds.sentyes]; if (r) await pSent(r, "Mail"); return; }
+  if (ds.amode){ UI.anfMode = ds.amode; return render(); }
+  if (ds.pfilt){ UI.pFilt = ds.pfilt; return render(); }
+  if (ds.pevs){ UI.pOpen = UI.pOpen === ds.pevs ? null : ds.pevs; return render(); }
+  if (ds.pmail || ds.pcopy){ if (!senderName()) return toast("Bitte oben den Absender wählen"); const r = S.referents[ds.pmail || ds.pcopy], m = r && pMail(r, senderName()); if (!m) return;
+    if (ds.pmail && r.email){ await openMailRich(r.email, m.subj, m.body); return askSent(r, m); }
+    const ok = await copyRich(mailHtml(m.body), m.subj + "\n\n" + m.body); toast(ok ? "Text mit Formatierung kopiert – Betreff: „" + m.subj + "“" : "Kopieren nicht möglich"); return; }
+  if (ds.psent){ if (!senderName()) return toast("Bitte oben den Absender wählen"); const r = S.referents[ds.psent]; if (r) await pSent(r, ds.ch); return; }
+  if (ds.pans){ UI.pPre = null; UI.pSum = ""; UI.pText = ""; openDrawer("pans", ds.pans); return; }
+  if (ds.pparse) return pParse();
+  if (ds.papply) return pApply(false);
+  if (ds.psave) return pApply(true);
   if (ds.rhist){ UI.histOpen = UI.histOpen === ds.rhist ? null : ds.rhist; return render(); }
   if (ds.aparse) return ansParse();
   if (ds.asave) return ansSave(false);
   if (ds.aapply) return ansApply();
   if (ds.delavail){ const [rid, i] = ds.delavail.split("|"); const r = Object.assign({}, S.referents[rid]); r.avail = (r.avail||[]).filter((_,k) => k !== +i); if (await put("referents", rid, r)){ S.referents[rid] = r; openDrawer("ref", rid); render(); } return; }
+  if (ds.accg){ ev.stopPropagation(); const on = ds.on === "1", seen = new Set(), mem = []; JSON.parse(ds.accg).forEach(([id, t]) => accMembers(id, t).forEach(q => { const k = q.id + "|" + q.t; if (!seen.has(k)){ seen.add(k); mem.push(q); } })); await setAcc(mem, on); return; }
   if (ds.acc){ ev.stopPropagation(); const [id, ...rest] = JSON.parse(ds.acc); const on = ds.on === "1"; await setAcc(accMembers(id, rest[0]), on); const zp = $("#zpop"); if (zp) zp.hidden = true; return; }
   if (ds.view) return go(ds.view);
   if (ds.serf){ UI.serFilter = ds.serf; return render(); }
+  if (ds.lpast != null){ UI.lPast = ds.lpast === "1"; return render(); }
   if (ds.ydet != null){ UI.yOpen = null; UI.yearDetail = ds.ydet === "1"; try { localStorage.setItem("shp-ydet", ds.ydet); } catch(e){} return render(); }
   if (ds.evnav != null || ds.sernav != null || ds.openser || ds.back){
     if (UI.dirty && !UI.dirtyOk){ UI.dirtyOk = true; clearTimeout(UI.dirtyT); UI.dirtyT = setTimeout(() => UI.dirtyOk = false, 4000); toast("Ungespeicherte Änderungen – zum Verwerfen erneut klicken"); return; }
@@ -1482,8 +1838,8 @@ document.addEventListener("click", async ev => {
   if (ds.bk) return bkAction(ds.bk);
   if (ds.ev === "__draft") return;
   /* Prüfbericht: Termin rechts öffnen, links den betroffenen Tag zeigen (wie Wochenansicht, nur dieser Tag) */
-  if (ds.ev && UI.view === "pruefung" && t.closest(".iitem") && S.events[ds.ev]){ const e = S.events[ds.ev];
-    UI.view0 = "pruefung"; UI.view = "woche"; UI.week = e.date; UI.dayOnly = e.date; window.scrollTo(0,0); openDrawer("ev", e.id); UI.week0 = null; return render(); }
+  if (ds.ev && ((UI.view === "pruefung" && t.closest(".iitem")) || (UI.view === "liste" && t.closest("tr[data-ev]"))) && S.events[ds.ev]){ const e = S.events[ds.ev];
+    UI.retY = UI.view === "liste" ? window.scrollY : null; UI.view0 = UI.view; UI.view = "woche"; UI.week = e.date; UI.dayOnly = e.date; window.scrollTo(0,0); openDrawer("ev", e.id); UI.week0 = null; return render(); }
   if (ds.ev) return openDrawer("ev", ds.ev);
   if (ds.new) return openDrawer("ev", null, ds.new.length === 10 ? {date:ds.new} : {});
   if (ds.ser){ snapSerOrder(ds.ser); return openDrawer("ser", ds.ser); }
@@ -1547,13 +1903,13 @@ document.addEventListener("submit", async ev => {
     if (await put("absences", id, o)){ S.absences[id] = o; toast("Abwesenheit eingetragen"); render(); }
   }
 });
-document.addEventListener("keydown", ev => { if (ev.key === "Escape" && UI.drawer) closeDrawer(); });
+document.addEventListener("keydown", ev => { if (ev.key === "Escape"){ const sa = document.getElementById("sentask"); if (sa && !sa.hidden){ closeSentAsk(); return; } if (UI.drawer) closeDrawer(); } });
 
 /* ---------- Mobile Leseansicht (Handy): Tag und Woche, ohne Bearbeitung, ohne personenbezogene Angaben ---------- */
 const MB = {mode:"tag", day:null};
 const mobPhone = () => { try { return Math.min(screen.width, screen.height) < 600 && matchMedia("(pointer:coarse)").matches; } catch(e){ return false; } };
 const mobKey = () => "shp-mob-" + (mobPhone() ? "p" : "d");
-function mobInit(){ if (TEAM){ UI.mob = true; document.body.classList.add("team"); mobClass(); return; } let v = null; try { v = localStorage.getItem(mobKey()); } catch(e){} UI.mob = v === "1" ? true : v === "0" ? false : mobPhone(); mobClass(); }
+function mobInit(){ if (TEAM){ UI.mob = true; document.body.classList.add("team"); mobClass(); return; } try { localStorage.removeItem("shp-mob-p"); localStorage.removeItem("shp-mob-d"); } catch(e){} UI.mob = false; mobClass(); }
 function mobClass(){ document.documentElement.classList.toggle("mob", !!UI.mob); document.body.classList.toggle("mobmode", !!UI.mob); }
 function mobSet(on){ UI.mob = !!on; try { localStorage.setItem(mobKey(), on ? "1" : "0"); } catch(e){} if (on && UI.drawer) closeDrawer(); mobClass(); window.scrollTo(0,0); render(); }
 /* Personennamen (Referenten, Abwesenheiten) aus Prüftexten entfernen */
@@ -1877,7 +2233,7 @@ document.addEventListener("click", ev => { const a = ev.target.closest("a.mnote"
 
 /* ---------- Start ---------- */
 (function init(){
-  try { const v = localStorage.getItem("shp-view"); if (v && VIEWS[v]) UI.view = v; UI.yearDetail = localStorage.getItem("shp-ydet") === "1"; UI.yPos = localStorage.getItem("shp-ypos") || null; UI.week = localStorage.getItem("shp-week") || UI.week; UI.yRestore = UI.view === "jahr"; } catch(e){}
+  try { const v = localStorage.getItem("shp-view"); if (v && VIEWS[v]) UI.view = v === "anfragen" ? "referenten" : v; UI.yearDetail = localStorage.getItem("shp-ydet") === "1"; UI.yPos = localStorage.getItem("shp-ypos") || null; UI.week = localStorage.getItem("shp-week") || UI.week; UI.yRestore = UI.view === "jahr"; } catch(e){}
   mobInit();
   if (OFFLINE) return offlineInit();
   render();
