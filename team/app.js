@@ -464,7 +464,7 @@ const wkLegend = () => {
    + row(smp(`<span class="fur" style="left:8%">□</span><span class="fur" style="left:30%">○</span><span class="fur" style="left:52%">≡</span><span class="fur chg" style="left:72%">⇄ ⊞</span>`), "Workshopraum-Möblierung: □ leer · ○ Stuhlkreis · ≡ Stuhlreihen · ⊞ Tische mit Stühlen; ⇄ = vorher Umbau nötig (Maus zeigt von → nach)")
    + row(`<div class="lgs lgn"></div>`, "Schraffierter Streifen zwischen Tagen: Nacht (21–10 Uhr)")
    + row(`<div class="lgs" style="position:relative;height:34px"><button class="blk" style="left:5%;width:45%;top:2px;bottom:auto;height:13px;background-color:${c};--c:${c}"></button><div class="cnx mid" style="left:50%;top:15px;bottom:auto;height:4px"></div><div class="cnx t-dn" style="left:50%;top:19px;height:2px"></div><button class="blk" style="left:50%;width:30%;top:21px;bottom:auto;height:11px;background-color:${c};--c:${c}"></button></div>`, "Abschluss in einem anderen Raum (z. B. Walk and Talk am Esstisch): dunkle Verbindungslinie mit Pfeil vom Hauptteil zum Abschluss. Maus auf einen Teil hebt alle Teile derselben Veranstaltung hervor.")
-   + row(`<div class="lgs" style="position:relative"><div class="alt ok" style="left:4%;width:44%"></div><div class="alt wn" style="left:52%;width:44%"></div></div>`, "Alternativen (nur bei geöffnetem Termin): grün schraffiert = hier passt der Termin mit gleicher Dauer und gleichem Raum ohne Konflikt, gelb = nur mit Hinweis (z. B. ruhige Woche, Lärm). Geprüft werden alle Regeln: andere Termine, Reihe, Referent, Feiertage, Pausen, Kernöffnungszeit. Mit ← → durch die Wochen blättern, die Schraffur rechnet je Woche neu. Maus auf die Schraffur zeigt die möglichen Beginnzeiten. Schalter oben: „Alternativen ausblenden“.")
+   + row(`<div class="lgs" style="position:relative"><div class="alt ok" style="left:4%;width:44%"></div><div class="alt wn" style="left:52%;width:44%"></div></div>`, "Alternativen (nur bei geöffnetem Termin): grün schraffiert = hier passt der Termin mit gleicher Dauer und gleichem Raum ohne Konflikt, gelb = nur mit Hinweis (z. B. ruhige Woche, Lärm). Geprüft werden alle Regeln: andere Termine, Reihe, Referent, Feiertage, Pausen, Kernöffnungszeit. Mit ← → durch die Wochen blättern, die Schraffur rechnet je Woche neu. Maus auf die Schraffur zeigt die möglichen Beginnzeiten. Schalter oben: „Alternativen ausblenden“. Unter dem Raster listet „Mögliche Zeiten“ alle Startfenster über mehrere Wochen (kopierbar, übernehmbar).")
    + `</div><div class="notes">Kopfzeile: ← → blättert, Datumsfeld springt zu einer Woche, rechts der Wochenstatus (Klick: belebt → ruhig → Pause). „+ Termin“ legt einen Termin an diesem Tag an. Oben Mo–Mi, unten Do–Sa. Zeitachse je Tag 10–21 Uhr, länger, wenn Termine früher beginnen oder später enden. Maus auf einen Block zeigt Name, Zeit und Raum.</div>`;
 };
 let UMB = new Map();
@@ -485,6 +485,51 @@ function altSlots(dr, base, d){
 }
 /* Startzeiten zu Bereichen zusammenfassen: "10:00–11:30, 14:00" */
 const altRanges = arr => { const r = []; arr.forEach(x => { const l = r[r.length-1]; if (l && x.s - l[1] === 15) l[1] = x.s; else r.push([x.s, x.s]); }); return r.map(([a,b]) => a === b ? m2t(a) : m2t(a) + "–" + m2t(b)).join(", "); };
+function altGo(d){ UI.week = d; if (UI.dayOnly) UI.dayOnly = d; UI.restoreY = 0; UI.altFlash = d; render(); }
+/* Liste möglicher Zeiten (v107): alle Startfenster je Tag über einen wählbaren Zeitraum, Kopie für Mailvorschläge */
+const ALT_RG = [["4w","4 Wochen"],["3m","3 Monate"],["jahr","bis Jahresende"]];
+const WDF = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
+let ALTC = null;
+/* aufeinanderfolgende Startzeiten gleicher Art (ok / mit Hinweis) zu Fenstern zusammenfassen */
+const altWins = arr => { const r = []; arr.forEach(x => { const l = r[r.length-1]; if (l && x.s - l.b === 15 && l.w === x.w) l.b = x.s; else r.push({a:x.s, b:x.s, w:x.w}); }); return r; };
+function altSpan(){
+  /* Beginn bleibt fest, solange der Dialog offen ist (Woche beim ersten Anzeigen), damit Sprünge aus der Liste die Liste nicht verschieben */
+  if (!UI.altFrom) UI.altFrom = UI.dayOnly || UI.week || todayStr();
+  const base = UI.altFrom, [y,w] = isoWeek(base), mon = mondayOf(y,w), td = todayStr();
+  const from = mon < td ? td : mon, rg = UI.altRange || "4w";
+  const to = rg === "jahr" ? from.slice(0,4) + "-12-31" : rg === "3m" ? S_(D(mon) + 90) : S_(D(mon) + 27);
+  return {from, to, rg};
+}
+function altList(dr, base){
+  const sp = altSpan();
+  const key = JSON.stringify([sp, PREV_FIELDS.filter(k => k !== "date" && k !== "start").map(k => dr[k]), dr.refs, dr.excl, dr.kind, dr.theme,
+    base.map(e => [e.id, e.date, e.start, e.dur, e.room, e.status, e.allDay, (e.refs||[]).join()].join("|")).join(";"), S.weeks, Object.keys(S.absences||{}).length]);
+  if (ALTC && ALTC.key === key) return ALTC;
+  const days = [];
+  for (let n = D(sp.from); n <= D(sp.to); n++){ const d = S_(n); if (wdOf(d) === 0) continue;
+    const ws = altWins(altSlots(dr, base, d)); if (ws.length) days.push({d, ws}); }
+  return ALTC = {key, sp, days};
+}
+const altWinTxt = x => x.a === x.b ? m2t(x.a) : m2t(x.a) + "–" + m2t(x.b);
+const durTxt = m => { m = +m || 0; const h = Math.floor(m/60), r = m % 60; return (h ? h + " Std." : "") + (h && r ? " " : "") + (r ? r + " Min." : ""); };
+function altListHtml(dr, base){
+  const L = altList(dr, base), sp = L.sp, nW = L.days.reduce((a,x) => a + x.ws.length, 0), nH = L.days.reduce((a,x) => a + x.ws.filter(w => w.w).length, 0);
+  let lastK = "", rows = "";
+  L.days.forEach(x => { const [y,w] = isoWeek(x.d), k = y + "-W" + pad(w), st = S.weeks[k] || "belebt";
+    if (k !== lastK){ lastK = k; rows += `<div class="alk">KW ${w}${st !== "belebt" ? " · " + stLab(st) : ""}</div>`; }
+    rows += `<div class="ald"><button class="aldt" data-altgo="${x.d}" title="Tag in der Wochenansicht zeigen">${WD[wdOf(x.d)]} ${fmtY(x.d)}</button><span class="alws">${x.ws.map(v =>
+      `<span class="alc ${v.w ? "wn" : "ok"}"><button class="alcg" data-altgo="${x.d}" title="${esc((v.w ? "Nur mit Hinweis" : "Ohne Konflikt") + " – Beginn " + altWinTxt(v) + " Uhr. Klick: Tag in der Wochenansicht zeigen")}">${altWinTxt(v)}</button><button class="alcs" data-altset="${x.d}|${m2t(v.a)}" title="${esc("Datum " + fmtY(x.d) + " und Beginn " + m2t(v.a) + " in den Termin übernehmen")}">übernehmen</button></span>`).join("")}</span></div>`; });
+  const help = qh(`<b>Mögliche Zeiten</b><ul><li>Listet alle Startfenster, in denen der geöffnete Termin mit gleicher Dauer und gleichem Raum passt – nach denselben Regeln wie die Schraffur in der Wochenansicht.</li><li>Grün = ohne Konflikt, gelb = nur mit Hinweis (z. B. ruhige Woche, Lärm).</li><li>„14:00–15:30“ heißt: Beginn zwischen 14:00 und 15:30 möglich (15-Minuten-Schritte).</li><li>Zeitraum: ab der Woche, die beim Öffnen des Termins angezeigt war (frühestens heute), 4 Wochen, 3 Monate oder bis zum Jahresende. Die Liste bleibt beim Blättern gleich. Sonntage werden nicht geprüft.</li><li>Klick auf Datum oder Zeit: springt zu diesem Tag in der Wochenansicht. „übernehmen“ setzt Datum und Beginn (Anfang des Fensters) in den Termin; gespeichert wird erst mit „Speichern“.</li><li>„Kopieren“: Liste als Text für eine Vorschlagsmail in die Zwischenablage (ohne Grün/Gelb-Unterscheidung).</li></ul>`);
+  return `<section class="altlist" aria-label="Mögliche Zeiten"><div class="alh"><h3>Mögliche Zeiten${help}</h3><span class="alsub">${esc(evName(dr))} · ${esc(durTxt(dr.dur))} · ${esc(dr.room || "Raum offen")} · ${fmtY(sp.from)}–${fmtY(sp.to)}</span><span class="altools"><select class="in" data-altrg="1" aria-label="Zeitraum">${ALT_RG.map(([v,l]) => `<option value="${v}"${sp.rg === v ? " selected" : ""}>${l}</option>`).join("")}</select><button class="btn" data-altcopy="1"${nW ? "" : " disabled"}>Kopieren</button></span></div>`
+    + (nW ? `<div class="alsum">${L.days.length} Tage · ${nW} Startfenster${nH ? ` · davon ${nH} nur mit Hinweis` : ""}</div><div class="alrows">${rows}</div>` : `<div class="alsum">Im gewählten Zeitraum keine passende Lage.</div>`) + `</section>`;
+}
+function altCopyText(){
+  if (!ALTC || !PREV) return "";
+  const dr = PREV.list.find(e => e.__draft); if (!dr) return "";
+  const dl = d => WDF[wdOf(d)] + ", " + (+d.slice(8,10)) + ". " + MONTHS[+d.slice(5,7)-1] + " " + d.slice(0,4);
+  const w1 = v => v.a === v.b ? "um " + m2t(v.a) + " Uhr" : "zwischen " + m2t(v.a) + " und " + m2t(v.b) + " Uhr";
+  return "Mögliche Termine für „" + evName(dr) + "“ (Dauer " + durTxt(dr.dur) + "):\n" + ALTC.days.map(x => "– " + dl(x.d) + ": Beginn " + x.ws.map(w1).join(" oder ")).join("\n");
+}
 function viewWoche(o){
   o = o || {}; const MOB = !!o.mob;
   const L = PREV ? PREV.list : evList(), IS = PREV ? PREV.iss : ISS, OLD = PREV && PREV.orig;
@@ -568,7 +613,7 @@ function viewWoche(o){
   const showOpen = days.some(x => x.lanes["Raum offen"].length);
   const gap = extra => `<div class="wgap${extra?" "+extra:""}" title="21–10 Uhr (Nacht)"></div>`;
   const block = part => {
-    let html = `<div class="wl wh"></div>` + part.map(x => `<div class="${dc(x,"wh")}"><div class="whd"><b${o.week ? ` data-mday="${x.d}" role="button" tabindex="0" title="Tagesansicht öffnen"` : ""}><span class="wdn">${WD[wdOf(x.d)]}</span> ${fmtY(x.d)}${o.week ? " ›" : ""}</b>${MOB ? "" : `<button class="btn add" data-new="${x.d}" title="Termin am ${fmtY(x.d)} anlegen" aria-label="Termin am ${fmtY(x.d)} anlegen">+ Termin</button>`}</div>${x.tags?`<div class="tags">${x.tags}</div>`:""}${x.openH}</div>`).join(gap("wh"));
+    let html = `<div class="wl wh"></div>` + part.map(x => `<div class="${dc(x,"wh")}" data-wday="${x.d}"><div class="whd"><b${o.week ? ` data-mday="${x.d}" role="button" tabindex="0" title="Tagesansicht öffnen"` : ""}><span class="wdn">${WD[wdOf(x.d)]}</span> ${fmtY(x.d)}${o.week ? " ›" : ""}</b>${MOB ? "" : `<button class="btn add" data-new="${x.d}" title="Termin am ${fmtY(x.d)} anlegen" aria-label="Termin am ${fmtY(x.d)} anlegen">+ Termin</button>`}</div>${x.tags?`<div class="tags">${x.tags}</div>`:""}${x.openH}</div>`).join(gap("wh"));
     html += `<div class="wl wt"></div>` + part.map(x => `<div class="${dc(x,"wt")}"><div class="lane hrs">${x.hours.join("")}</div></div>`).join(gap("wt"));
     html += `<div class="wl">Check-in</div>` + part.map(x => `<div class="${dc(x)}"><div class="lane" style="--hrs:${x.hrs}">${x.ci}</div></div>`).join(gap(""));
     let lastG = "";
@@ -577,8 +622,8 @@ function viewWoche(o){
     return `<div class="scroll"><div class="wgrid ${MOB ? (S.weeks[weekKey(part[0].d)] || "belebt") + " mob" : st}" style="grid-template-columns:var(--wlab) ${part.map(() => "minmax(0,1fr)").join(" var(--wgap) ")}">${html}</div></div>`;
   };
   if (MOB) return o.week ? days.map(x => block([x])).join("") : block(days);
-  if (ONE) return `<div class="head"><div class="weeknav"><button class="btn" data-prback="1" title="Termin schließen und zurück zum ${UI.view0 === "liste" ? "Terminliste" : "Prüfbericht"}">← ${UI.view0 === "liste" ? "Terminliste" : "Prüfbericht"}</button><span class="kwl">${WD[wdOf(ONE)]} ${fmtY(ONE)} · KW ${isoWeek(ONE)[1]}</span><button class="btn" data-dayweek="1" title="Ganze Woche anzeigen">Ganze Woche</button>${qh("<b>Tagesansicht</b> (aus Prüfbericht oder Terminliste)<ul><li>Zeigt den Tag des Termins mit allen Belegungen und Konfliktstellen.</li><li>Ändert sich im Dialog das Datum, folgt die Ansicht dem neuen Tag.</li><li>Schließen oder Speichern führt zurück zum Prüfbericht bzw. zur Terminliste.</li><li>„Ganze Woche“ wechselt in die normale Wochenansicht.</li></ul>")}</div></div>${st === "ruhig" ? `<div class="wkbanner ruhig" role="note"><b>Ruhige Woche</b><span>So wenig Programm wie möglich.</span></div>` : st === "pause" ? `<div class="wkbanner pause" role="note"><b>Programmpause</b><span>Keine Veranstaltungen – nur feste Termine.</span></div>` : ""}${PREV ? `<div class="prevbar">Vorschau der Eingabe im Dialog rechts: <span class="pv-d">Entwurf</span> = neue Lage, <span class="pv-o">bisher</span> = gespeicherte Lage. Rot-weiß = Konflikt mit dem Entwurf.</div>` : ""}<div class="wblocks one">${block(days)}</div>`;
-  return `<div class="head"><div class="weeknav"><button class="btn" data-wnav="-7" aria-label="Vorige Woche">←</button><button class="btn" data-wnav="7" aria-label="Nächste Woche">→</button><button class="btn" data-wtoday="1" aria-pressed="${mobMon(UI.week) === mobMon(todayStr())}" title="Zur aktuellen Woche">Heute</button><span class="kwl">KW ${w} · ${fmt(mon)}–${fmtY(S_(D(mon)+6))}</span><input class="in" type="date" id="wkjump" value="${UI.week}" aria-label="Woche wählen">${qh(`<div class="qcols"><div>${wkLegend()}</div><div>${legendThemes()}</div></div>`)}</div><div class="tools">${PREV && PREV.list.some(e => e.__draft) ? `<button class="btn ghost sm" data-alt="1" aria-pressed="${UI.altOff ? "false" : "true"}" title="Schraffur der möglichen Lagen für den geöffneten Termin ein-/ausblenden">${UI.altOff ? "Alternativen zeigen" : "Alternativen ausblenden"}</button>` : ""}<button class="wkst ${st}" data-wk="${y}-W${pad(w)}" title="Wochenstatus wechseln: belebt → ruhig → Pause">${stLab(st)}</button></div></div>${st === "ruhig" ? `<div class="wkbanner ruhig" role="note"><b>Ruhige Woche</b><span>So wenig Programm wie möglich: regulär nur Walk and Talk; Einzelberatungen und andere Veranstaltungen nur als Ausnahme.</span></div>` : st === "pause" ? `<div class="wkbanner pause" role="note"><b>Programmpause</b><span>Keine Veranstaltungen – nur feste Termine.</span></div>` : ""}${PREV ? `<div class="prevbar">Vorschau der Eingabe im Dialog rechts: <span class="pv-d">Entwurf</span> = neue Lage, <span class="pv-o">bisher</span> = gespeicherte Lage. Rot-weiß = Konflikt mit dem Entwurf.</div>` : ""}<div class="wblocks">${block(days.slice(0,3))}${block(days.slice(3))}</div>`;
+  if (ONE) return `<div class="head"><div class="weeknav"><button class="btn" data-prback="1" title="Termin schließen und zurück zum ${UI.view0 === "liste" ? "Terminliste" : "Prüfbericht"}">← ${UI.view0 === "liste" ? "Terminliste" : "Prüfbericht"}</button><span class="kwl">${WD[wdOf(ONE)]} ${fmtY(ONE)} · KW ${isoWeek(ONE)[1]}</span><button class="btn" data-dayweek="1" title="Ganze Woche anzeigen">Ganze Woche</button>${qh("<b>Tagesansicht</b> (aus Prüfbericht oder Terminliste)<ul><li>Zeigt den Tag des Termins mit allen Belegungen und Konfliktstellen.</li><li>Ändert sich im Dialog das Datum, folgt die Ansicht dem neuen Tag.</li><li>Schließen oder Speichern führt zurück zum Prüfbericht bzw. zur Terminliste.</li><li>„Ganze Woche“ wechselt in die normale Wochenansicht.</li></ul>")}</div></div>${st === "ruhig" ? `<div class="wkbanner ruhig" role="note"><b>Ruhige Woche</b><span>So wenig Programm wie möglich.</span></div>` : st === "pause" ? `<div class="wkbanner pause" role="note"><b>Programmpause</b><span>Keine Veranstaltungen – nur feste Termine.</span></div>` : ""}${PREV ? `<div class="prevbar">Vorschau der Eingabe im Dialog rechts: <span class="pv-d">Entwurf</span> = neue Lage, <span class="pv-o">bisher</span> = gespeicherte Lage. Rot-weiß = Konflikt mit dem Entwurf.</div>` : ""}<div class="wblocks one">${block(days)}</div>${ALTD ? altListHtml(ALTD, ALTB) : ""}`;
+  return `<div class="head"><div class="weeknav"><button class="btn" data-wnav="-7" aria-label="Vorige Woche">←</button><button class="btn" data-wnav="7" aria-label="Nächste Woche">→</button><button class="btn" data-wtoday="1" aria-pressed="${mobMon(UI.week) === mobMon(todayStr())}" title="Zur aktuellen Woche">Heute</button><span class="kwl">KW ${w} · ${fmt(mon)}–${fmtY(S_(D(mon)+6))}</span><input class="in" type="date" id="wkjump" value="${UI.week}" aria-label="Woche wählen">${qh(`<div class="qcols"><div>${wkLegend()}</div><div>${legendThemes()}</div></div>`)}</div><div class="tools">${PREV && PREV.list.some(e => e.__draft) ? `<button class="btn ghost sm" data-alt="1" aria-pressed="${UI.altOff ? "false" : "true"}" title="Schraffur der möglichen Lagen für den geöffneten Termin ein-/ausblenden">${UI.altOff ? "Alternativen zeigen" : "Alternativen ausblenden"}</button>` : ""}<button class="wkst ${st}" data-wk="${y}-W${pad(w)}" title="Wochenstatus wechseln: belebt → ruhig → Pause">${stLab(st)}</button></div></div>${st === "ruhig" ? `<div class="wkbanner ruhig" role="note"><b>Ruhige Woche</b><span>So wenig Programm wie möglich: regulär nur Walk and Talk; Einzelberatungen und andere Veranstaltungen nur als Ausnahme.</span></div>` : st === "pause" ? `<div class="wkbanner pause" role="note"><b>Programmpause</b><span>Keine Veranstaltungen – nur feste Termine.</span></div>` : ""}${PREV ? `<div class="prevbar">Vorschau der Eingabe im Dialog rechts: <span class="pv-d">Entwurf</span> = neue Lage, <span class="pv-o">bisher</span> = gespeicherte Lage. Rot-weiß = Konflikt mit dem Entwurf.</div>` : ""}<div class="wblocks">${block(days.slice(0,3))}${block(days.slice(3))}</div>${ALTD ? altListHtml(ALTD, ALTB) : ""}`;
 }
 
 /* ---------- Ansicht: Liste ---------- */
@@ -1264,6 +1309,7 @@ function render(){
   if (UI.restoreY != null){ window.scrollTo(0, UI.restoreY); UI.restoreY = null; }
   if (UI.yRestore && S.loaded && UI.view === "jahr" && !UI.mob){ UI.yRestore = false; if (UI.yPos) yScrollTo(UI.yPos, false); }
   markSel();
+  if (UI.altFlash){ const h = document.querySelector(`[data-wday="${UI.altFlash}"]`); UI.altFlash = null; if (h){ h.classList.remove("aflash"); void h.offsetWidth; h.classList.add("aflash"); } }
   if (UI.mob) mobFit();
   if (UI.drawer) refreshLive(true);
 }); }
@@ -1311,7 +1357,7 @@ function fd(form){
   }
   return o;
 }
-function openDrawer(kind, id, preset, back){
+function openDrawer(kind, id, preset, back){ UI.altFrom = null;
   if (kind === "ev" && UI.week0 == null) UI.week0 = UI.week || "";
   UI.drawer = {kind, id, preset, back}; UI.dirty = false; UI.dirtyOk = false;
   UI.selEv = kind === "ev" && id ? id : (back && back.kind === "ev" ? back.id : null); markSel();
@@ -1403,7 +1449,7 @@ document.addEventListener("toggle", ev => {
   const m = loadSecs(); m[d.dataset.seck] = d.open; try { localStorage.setItem("shp-secs", JSON.stringify(m)); } catch(e){}
 }, true);
 const WIDE = () => window.matchMedia("(min-width:1400px)").matches;
-function closeDrawer(saved, keep){
+function closeDrawer(saved, keep){ UI.altFrom = null;
   const had = !!PREV; PREV = null;
   const retY = UI.dayOnly && !keep && UI.view0 === "liste" ? UI.retY : null; UI.retY = null;
   const fromPr = UI.dayOnly && !keep; if (fromPr){ UI.dayOnly = null; if (UI.view0) UI.view = UI.view0; UI.view0 = null; saved = false; }
@@ -1776,7 +1822,7 @@ async function exportCsv(){
 /* ---------- Ereignisse ---------- */
 document.addEventListener("click", async ev => {
   if (ev.target.closest && ev.target.closest("a.clink")) return;
-  const t = ev.target.closest("[data-sentyes],[data-sentno],[data-zone],[data-acc],[data-accg],[data-newround],[data-amode],[data-pfilt],[data-pmail],[data-pcopy],[data-psent],[data-pans],[data-pevs],[data-pparse],[data-papply],[data-psave],[data-rmail],[data-rcopy],[data-rsent],[data-rremind],[data-rans],[data-rhist],[data-aparse],[data-asave],[data-aapply],[data-delavail],[data-ydet],[data-sernav],[data-evnav],[data-openser],[data-back],[data-quick],[data-view],[data-wk],[data-goweek],[data-ev],[data-new],[data-wnav],[data-wtoday],[data-prback],[data-dayweek],[data-ytoday],[data-alt],[data-bk],[data-ser],[data-newser],[data-ref],[data-newref],[data-close],[data-save],[data-del],[data-delok],[data-dup],[data-gen],[data-take],[data-csv],[data-delabs],[data-serf],[data-lpast]");
+  const t = ev.target.closest("[data-sentyes],[data-sentno],[data-zone],[data-acc],[data-accg],[data-newround],[data-amode],[data-pfilt],[data-pmail],[data-pcopy],[data-psent],[data-pans],[data-pevs],[data-pparse],[data-papply],[data-psave],[data-rmail],[data-rcopy],[data-rsent],[data-rremind],[data-rans],[data-rhist],[data-aparse],[data-asave],[data-aapply],[data-delavail],[data-ydet],[data-sernav],[data-evnav],[data-openser],[data-back],[data-quick],[data-view],[data-wk],[data-goweek],[data-ev],[data-new],[data-wnav],[data-wtoday],[data-prback],[data-dayweek],[data-ytoday],[data-alt],[data-altgo],[data-altset],[data-altcopy],[data-bk],[data-ser],[data-newser],[data-ref],[data-newref],[data-close],[data-save],[data-del],[data-delok],[data-dup],[data-gen],[data-take],[data-csv],[data-delabs],[data-serf],[data-lpast]");
   const guard = () => { if (UI.drawer && UI.dirty && !UI.dirtyOk){ UI.dirtyOk = true; clearTimeout(UI.dirtyT); UI.dirtyT = setTimeout(() => UI.dirtyOk = false, 4000); toast("Ungespeicherte Änderungen – zum Verwerfen erneut klicken"); return true; } return false; };
   if (!t) {
     if (UI.drawer && !ev.target.closest("#drawer") && !ev.target.closest("input,select,textarea,label,button,a,summary,.qh,#qtip") && !guard()) closeDrawer();
@@ -1835,6 +1881,13 @@ document.addEventListener("click", async ev => {
   if (ds.wtoday){ UI.week = todayStr(); return render(); }
   if (ds.ytoday) return yearToday();
   if (ds.alt){ UI.altOff = !UI.altOff; return render(); }
+  if (ds.altgo){ altGo(ds.altgo); return; }
+  if (ds.altset){ const [d, st] = ds.altset.split("|"), f = $("#f"); if (!f) return;
+    const sd = f.querySelector('input[name="date"]'), ss = f.querySelector('input[name="start"]');
+    if (sd){ sd.value = d; sd.dispatchEvent(new Event("input", {bubbles:true})); }
+    if (ss){ ss.value = st; ss.dispatchEvent(new Event("input", {bubbles:true})); }
+    altGo(d); toast("Übernommen: " + WD[wdOf(d)] + " " + fmtY(d) + ", " + st + " – noch nicht gespeichert"); return; }
+  if (ds.altcopy){ const ok = await copyText(altCopyText()); toast(ok ? "Mögliche Zeiten kopiert" : "Kopieren nicht möglich"); return; }
   if (ds.bk) return bkAction(ds.bk);
   if (ds.ev === "__draft") return;
   /* Prüfbericht: Termin rechts öffnen, links den betroffenen Tag zeigen (wie Wochenansicht, nur dieser Tag) */
@@ -2255,3 +2308,5 @@ document.addEventListener("click", ev => { const a = ev.target.closest("a.mnote"
     db.doc("meta/weeks").onSnapshot(snap => { S.weeks = snap.exists ? Object.assign({}, (snap.data()||{}).status||{}) : {}; done("weeks"); }, () => {});
   });
 })();
+
+document.addEventListener("change", ev => { if (ev.target.dataset && ev.target.dataset.altrg){ UI.altRange = ev.target.value; const sy = window.scrollY; render(); window.scrollTo(0, sy); } });

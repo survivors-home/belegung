@@ -357,6 +357,27 @@ table.list{border-collapse:collapse;width:100%;font-size:.88rem}
 @keyframes selblink{0%,100%{outline-color:#ff00ff;box-shadow:0 0 0 6px rgba(255,0,255,.38)}50%{outline-color:rgba(255,0,255,.15);box-shadow:0 0 0 2px rgba(255,0,255,.08)}}
 @media (prefers-reduced-motion:reduce){.blk.draft,.wgrid .blk.sel{animation:none}}
 .oldpos{position:absolute;top:3px;bottom:3px;z-index:2;border:2px dotted var(--muted);border-radius:4px;background:rgba(255,255,255,.55);color:var(--muted);font-size:.55rem;font-weight:700;padding:2px 4px;overflow:hidden;white-space:nowrap;pointer-events:none}
+.altlist{margin:14px 0 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface);padding:10px 12px}
+.altlist .alh{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px}
+.altlist h3{margin:0;font-size:1rem}
+.altlist .alsub{color:var(--muted);font-size:.85rem}
+.altlist .altools{margin-left:auto;display:flex;gap:8px;align-items:center}
+.altlist .altools select{height:30px}
+.altlist .alsum{font-size:.82rem;color:var(--muted);margin:6px 0 4px}
+.altlist .alrows{max-height:420px;overflow:auto}
+.altlist .alk{font-size:.75rem;font-weight:700;color:var(--violet);border-top:1px solid var(--line);padding:6px 0 2px;margin-top:4px}
+.altlist .ald{display:flex;align-items:flex-start;gap:10px;padding:3px 0}
+.altlist .aldt{flex:0 0 auto;min-width:8.6em;white-space:nowrap;text-align:left;background:none;border:0;padding:3px 0;font:inherit;font-size:.85rem;font-weight:600;color:var(--ink);cursor:pointer}
+.altlist .aldt:hover{color:var(--violet);text-decoration:underline}
+.altlist .alws{display:flex;flex-wrap:wrap;gap:5px}
+.altlist .alc{display:inline-flex;align-items:stretch;border-radius:4px;overflow:hidden;font-size:.82rem}
+.altlist .alc.ok{border:1.5px solid var(--ok);background:color-mix(in srgb,var(--ok) 12%,transparent)}
+.altlist .alc.wn{border:1.5px solid var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent)}
+.altlist .alc button{background:none;border:0;font:inherit;color:var(--ink);cursor:pointer;padding:2px 7px}
+.altlist .alcg{font-variant-numeric:tabular-nums;font-weight:600}
+.altlist .alcs{border-left:1px solid var(--line)!important;font-size:.72rem!important;color:var(--muted)!important}
+.altlist .alc button:hover{background:color-mix(in srgb,var(--violet) 14%,transparent)}
+.wc.wh.aflash{animation:yflash 1.6s ease-out}
 .prevbar{margin:0 0 10px;padding:7px 10px;border-left:4px solid var(--violet);background:var(--info-bg);border-radius:4px;font-size:.85rem}
 .prevbar .pv-d{outline:2px solid #ff00ff;padding:0 5px;border-radius:3px;font-weight:700}.prevbar .pv-o{border:2px dotted var(--muted);padding:0 5px;border-radius:3px;color:var(--muted);font-weight:700}
 #drawer #f input.chg,#drawer #f select.chg,#drawer #f textarea.chg,#drawer #f .dpair.chg{outline:3px solid #ff00ff;outline-offset:1px;background-color:color-mix(in srgb,#ff00ff 10%,transparent)}
@@ -757,7 +778,7 @@ body.team [data-mobon]{display:none!important}
   function start(data){
     window.__SHP_OFFLINE = true; window.__SHP_TEAM = true; window.__SHP_DATA = data;
     document.getElementById("lock").hidden = true;
-    const s = document.createElement("script"); s.src = "app.js?v=106"; document.body.appendChild(s);
+    const s = document.createElement("script"); s.src = "app.js?v=107"; document.body.appendChild(s);
   }
   async function tryPw(pw, remember){ try { const d = await open(pw); if (remember){ try { localStorage.setItem(KEY, pw); } catch(e){} } start(d); return true; } catch(e){ return false; } }
   document.getElementById("lkf").addEventListener("submit", async ev => { ev.preventDefault(); const pw = document.getElementById("lkpw").value; if (!(await tryPw(pw, true))) show(true); });
