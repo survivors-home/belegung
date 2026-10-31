@@ -706,6 +706,14 @@ body.mobmode{margin:0}
 .mday h3 .mtg{display:inline-flex;gap:4px;flex-wrap:wrap}
 .mday h3 .mtg .lv{font-size:.72rem;cursor:pointer}
 .mday h3 .mkwl{margin-left:auto;font-size:.8rem;color:var(--violet);white-space:nowrap}
+.mlist .mwk{display:flex;flex-direction:column}
+.mlist .mwk.ruhig{outline:3px solid var(--violet-2);outline-offset:-3px;position:relative;z-index:1}
+.mlist .mwk.pause{outline:2px dashed var(--muted);outline-offset:-2px;position:relative;z-index:1}
+.mlist .mwk.ruhig .mkwl,.mlist .mwk.ruhig .mskip em{color:var(--violet-2);font-weight:700}
+.mlist .mwk.pause .mkwl,.mlist .mwk.pause .mskip em{color:var(--muted);font-weight:700}
+#msheet .btn[data-mclose]{width:44px;height:44px;min-width:44px;padding:0;font-size:1.6rem;line-height:1;display:inline-flex;align-items:center;justify-content:center;border-radius:10px}
+.vhead{position:sticky;top:calc(var(--mhh,0px) + env(safe-area-inset-top,0px));z-index:14;background:var(--paper);padding-top:4px}
+.tstale{background:var(--err);color:#fff;font-weight:700;font-size:.82rem;padding:5px 10px;border-radius:6px;text-align:center}
 .mli{display:grid;grid-template-columns:4.7em 12px minmax(0,1fr);gap:0 10px;align-items:center;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:var(--paper);padding:10px 12px;cursor:pointer;font:inherit;color:var(--ink)}
 .mli .mt{display:flex;flex-direction:column;line-height:1.2}
 .mli .mt b{font-weight:500;font-size:.85rem}
@@ -782,7 +790,7 @@ body.team [data-mobon]{display:none!important}
   function start(data){
     window.__SHP_OFFLINE = true; window.__SHP_TEAM = true; window.__SHP_DATA = data;
     document.getElementById("lock").hidden = true;
-    const s = document.createElement("script"); s.src = "app.js?v=108"; document.body.appendChild(s);
+    const s = document.createElement("script"); s.src = "app.js?v=109"; document.body.appendChild(s);
   }
   async function tryPw(pw, remember){ try { const d = await open(pw); if (remember){ try { localStorage.setItem(KEY, pw); } catch(e){} } start(d); return true; } catch(e){ return false; } }
   document.getElementById("lkf").addEventListener("submit", async ev => { ev.preventDefault(); const pw = document.getElementById("lkpw").value; if (!(await tryPw(pw, true))) show(true); });

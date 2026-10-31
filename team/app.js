@@ -1319,7 +1319,7 @@ function render(){
   if (UI.yRestore && S.loaded && UI.view === "jahr" && !UI.mob){ UI.yRestore = false; if (UI.yPos) yScrollTo(UI.yPos, false); }
   markSel();
   if (UI.altFlash){ const h = document.querySelector(`[data-wday="${UI.altFlash}"]`); UI.altFlash = null; if (h){ h.classList.remove("aflash"); void h.offsetWidth; h.classList.add("aflash"); } }
-  if (UI.mob) mobFit();
+  if (UI.mob){ mobFit(); mobHeadH(); }
   if (UI.drawer) refreshLive(true);
 }); }
 /* Markierung des geöffneten Termins im Kalender; bei Termin-Navigation in den sichtbaren Bereich holen */
@@ -2021,6 +2021,26 @@ function mobSan(t){
   return s.replace(/^Hybrid nicht möglich: Team abwesend$/, "Hybrid nicht möglich: Technik-Verantwortlicher abwesend");
 }
 const mobMon = d => S_(D(d) - (wdOf(d)+6)%7);
+/* v109 Team-Seite: Warnung bei altem Datenstand. Routine läuft 5:17 und 9:17–19:17 alle 2 h; Warnung, wenn der Stand älter als 4 h ist
+   und ein geplanter Lauf (mit 30 Min Spielraum) danach hätte kommen müssen – nachts gilt der Stand von 19:17 als aktuell */
+const RUNS = [[5,17],[9,17],[11,17],[13,17],[15,17],[17,17],[19,17]];
+function lastRunBefore(t){ for (let k = 0; k < 3; k++){ const d0 = new Date(t.getFullYear(), t.getMonth(), t.getDate() - k);
+  for (let i = RUNS.length - 1; i >= 0; i--){ const r = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate(), RUNS[i][0], RUNS[i][1]); if (r <= t) return r; } } return null; }
+function teamStale(){
+  if (!TEAM || !window.__SHP_DATA || !window.__SHP_DATA.created) return false;
+  const c = new Date(window.__SHP_DATA.created), now = new Date(); if (isNaN(c)) return false;
+  const lr = lastRunBefore(new Date(now.getTime() - 30*60e3));
+  return now - c > 4*3600e3 && !!lr && c < lr;
+}
+const staleBar = () => { UI.lastStale = teamStale(); return UI.lastStale ? `<div class="tstale" role="alert">⚠ Daten nicht aktuell · Stand ${esc(bkWhen(window.__SHP_DATA.created))}</div>` : ""; };
+if (TEAM){
+  let hid = 0;
+  document.addEventListener("visibilitychange", () => { if (document.hidden) hid = Date.now(); else if (hid && Date.now() - hid >= 3600e3) location.reload(); else if (teamStale() !== UI.lastStale) render(); });
+  window.addEventListener("pageshow", ev => { if (ev.persisted && hid && Date.now() - hid >= 3600e3) location.reload(); });
+  setInterval(() => { if (!document.hidden && teamStale() !== UI.lastStale) render(); }, 5*60e3);
+}
+/* Höhe des festen Kopfbereichs als CSS-Variable (für die klebende Raumzeile der Tagesansicht) */
+function mobHeadH(){ const h = document.querySelector(".mhead.por"); document.documentElement.style.setProperty("--mhh", (h ? h.offsetHeight : 0) + "px"); }
 function viewMobil(){
   if (!MB.day) MB.day = todayStr();
   if (wdOf(MB.day) === 0 && !(MB.mode === "woche" && mobPortrait())) MB.day = S_(D(MB.day) + 1); /* Tagesansicht ohne Sonntag: auf Montag */
@@ -2035,13 +2055,13 @@ function viewMobil(){
   if (por){
     const tags = MB.mode === "tag" ? mobTags(d) : "";
     if (MON){
-      const head = `<div class="mhead por mon"><div class="mrow">${seg}<input class="in" type="month" id="mjump" value="${d.slice(0,7)}" aria-label="Monat wählen"><button class="btn sm" data-mtoday="1" aria-pressed="${mobIsToday(d)}">Heute</button></div><div class="mcal" id="mcal">${mobCal()}</div></div>`;
+      const head = `<div class="mhead por mon">${staleBar()}<div class="mrow">${seg}<input class="in" type="month" id="mjump" value="${d.slice(0,7)}" aria-label="Monat wählen"><button class="btn sm" data-mtoday="1" aria-pressed="${mobIsToday(d)}">Heute</button></div><div class="mcal" id="mcal">${mobCal()}</div></div>`;
       return head + `<div class="mlist">${mobMonList()}</div>` + `<div class="mfoot"><span class="hint">${TEAM && window.__SHP_DATA ? "Stand " + esc(bkWhen(window.__SHP_DATA.created)) + " · " : ""}Nur lesen · Termin antippen für Details · Kalenderblatt nach oben/unten wischen = nächster/voriger Monat · Tag im Kalender antippen = dorthin springen${TEAM ? ` · <a href="#" data-tlogout="1">Abmelden</a>` : ""}</span><button class="btn ghost sm mbig" data-mobon="0">Große Ansicht</button></div>`;
     }
-    const head = `<div class="mhead por"><div class="mrow">${seg}<input class="in" type="date" id="mjump" value="${d}" aria-label="Datum wählen"><button class="btn sm" data-mtoday="1" aria-pressed="${mobIsToday(d)}">Heute</button></div><div class="mrow mnav">${navb}</div>${MB.mode === "tag" ? mobStrip(d) : ""}${tags ? `<div class="mtags">${tags}</div>` : ""}</div>`;
+    const head = `<div class="mhead por">${staleBar()}<div class="mrow">${seg}<input class="in" type="date" id="mjump" value="${d}" aria-label="Datum wählen"><button class="btn sm" data-mtoday="1" aria-pressed="${mobIsToday(d)}">Heute</button></div><div class="mrow mnav">${navb}</div>${MB.mode === "tag" ? mobStrip(d) : ""}${tags ? `<div class="mtags">${tags}</div>` : ""}</div>`;
     return head + (MB.mode === "tag" ? mobDayV(d) : `<div class="wlist">${mobWeekAll()}</div>`) + `<div class="mfoot"><span class="hint">Nur lesen · Termin antippen für Details</span><button class="btn ghost sm mbig" data-mobon="0">Große Ansicht</button></div>`;
   }
-  const head = `<div class="mhead">${seg}<div class="mnav">${navb}</div>${tools}</div>`;
+  const head = `<div class="mhead">${staleBar()}${seg}<div class="mnav">${navb}</div>${tools}</div>`;
   const banner = st === "ruhig" ? `<div class="wkbanner ruhig" role="note"><b>Ruhige Woche</b><span>So wenig Programm wie möglich.</span></div>` : st === "pause" ? `<div class="wkbanner pause" role="note"><b>Programmpause</b><span>Keine Veranstaltungen – nur feste Termine.</span></div>` : "";
   const body = MB.mode === "tag" ? viewWoche({mob:true, days:[d]}) : viewWoche({mob:true, week:true, days:wkDays});
   return head + banner + `<div class="mbody ${MB.mode}">${body}</div><p class="hint mhint">Nur lesen. Termin antippen für Details. Lücken in den Raumspuren = frei.</p>`;
@@ -2116,8 +2136,8 @@ function mobMonLab(mon){ const ma = MONTHS[+mon.slice(5,7)-1], mb = MONTHS[+S_(D
 /* ---------- Mobil Hochformat: Monatsansicht (Kalenderblatt oben, Terminliste darunter) ---------- */
 const WDK = ["So","Mo","Di","Mi","Do","Fr","Sa"];
 const mobCnt = d => evList().filter(e => e.date === d && e.kind !== "notiz").length;
-/* Kurzdatum „Mi. 28. Okt.“ (Jahr nur, wenn nicht das aktuelle) */
-const mobDLab = d => `${WDK[wdOf(d)]}. ${+d.slice(8)}. ${MON_AB[+d.slice(5,7)-1]}${d.slice(0,4) !== todayStr().slice(0,4) ? " " + d.slice(0,4) : ""}`;
+/* Kurzdatum „Mi. 28. Okt.“ (ohne Jahr, v109) */
+const mobDLab = d => `${WDK[wdOf(d)]}. ${+d.slice(8)}. ${MON_AB[+d.slice(5,7)-1]}`;
 const mobDur = m => { m = +m || 0; const h = Math.floor(m/60), r = m % 60; return h && r ? `${h}h ${r}min` : h ? `${h}h` : `${r}min`; };
 /* Zeitraum der Monatsliste: ab Woche des ersten Termins (bzw. heute) bis Ende der Woche des letzten Termins */
 function mobRange(){ const ds = evList().map(e => e.date).sort(), t = todayStr();
@@ -2139,10 +2159,14 @@ function mobCal(){
 /* Terminliste: Tage mit Terminen, Notizen oder Feiertag; leere Tage als schmaler Platzhalter zusammengefasst */
 function mobMonList(){
   const t = todayStr(), tm = S_(D(t) + 1), [a, z] = mobRange();
-  let h = "", run = [], lastWk = "";
+  let h = "", run = [], lastWk = "", boxWk = "";
+  /* v109: jede Woche in einem Rahmen (.mwk); ruhig = violette Umrandung, Pause = gestrichelt grau (wie Hauptplaner) */
+  const box = d => { const wk = weekKey(d); if (wk === boxWk) return; if (boxWk) h += `</div>`; boxWk = wk; const st = S.weeks[wk] || "belebt"; h += `<div class="mwk ${st}">`; };
+  const stWord = st => st === "ruhig" ? "ruhig" : st === "pause" ? "Pause" : "";
   /* leere Tage: ein Platzhalter je Lauf (nie über eine Wochengrenze), Höhe = Anzahl Tage × halbe Tageshöhe */
   const flush = () => { if (!run.length) return; const a1 = run[0], b1 = run[run.length-1], pz = run.every(x => (S.weeks[weekKey(x)] || "") === "pause"), wk = weekKey(a1), ws = wk !== lastWk; lastWk = wk;
-    h += `<div class="mskip${ws ? " wks" : ""}" data-d="${a1}" data-e="${b1}"${ws ? ` data-wk="${mobMon(a1)}"` : ""} style="--n:${run.length}"><span>${mobDLab(a1)}${a1 !== b1 ? " – " + mobDLab(b1) : ""} · ${pz ? "Programmpause" : "keine Termine"}</span>${ws ? `<em>KW ${isoWeek(a1)[1]}</em>` : ""}</div>`; run = []; };
+    const sw = ws && !pz ? stWord(S.weeks[wk] || "belebt") : ""; box(a1);
+    h += `<div class="mskip${ws ? " wks" : ""}" data-d="${a1}" data-e="${b1}"${ws ? ` data-wk="${mobMon(a1)}"` : ""} style="--n:${run.length}"><span>${mobDLab(a1)}${a1 !== b1 ? " – " + mobDLab(b1) : ""} · ${pz ? "Programmpause" : "keine Termine"}</span>${sw ? `<em>${sw}</em>` : ""}</div>`; run = []; };
   for (let d = a; d <= z; d = S_(D(d) + 1)){
     if (wdOf(d) === 1) flush();
     const evs = evList().filter(e => e.date === d && e.kind !== "notiz").sort(sortEv), notes = evList().filter(e => e.date === d && e.kind === "notiz"), hol = FEIER[d], sp = sperrOn(d);
@@ -2153,9 +2177,9 @@ function mobMonList(){
     const tags = [hol ? `<span class="lv err">${esc(hol)}</span>` : "", sp ? `<span class="lv err">Sperrtag</span>` : "", fer ? `<span class="lv info">${esc(fer)}</span>` : "", ...notes.map(n => `<span class="lv info" data-ev="${n.id}">✎ ${esc(evName(n))}</span>`)].join("");
     const rows = evs.map(e => { const sp2 = span(e), t2 = theme(e), bg = e.kind === "vermietung" ? "var(--muted)" : t2[0];
       return `<button class="mli ${stCls(e)}${errNoZone(e.id) ? " bad" : ""}" data-ev="${e.id}" style="--c:${bg}"><span class="mt"><b>${e.allDay ? "ganztägig" : e.start ? esc(e.start) : "offen"}</b>${!e.allDay && e.start && sp2 ? `<small>${mobDur(sp2.e - sp2.s)}</small>` : ""}</span><i class="md"></i><span class="mn">${esc(evName(e))}</span></button>`; }).join("");
-    h += `<section class="mday${d === t ? " now" : ""}${hol || sp ? " hol" : ""}${showKw ? " wks" : ""}" data-d="${d}" data-e="${d}"${showKw ? ` data-wk="${mobMon(d)}"` : ""}><h3 data-mday="${d}" role="button" tabindex="0"><span class="mdl">${pre}${mobDLab(d)}</span>${tags ? `<span class="mtg">${tags}</span>` : ""}${showKw ? `<span class="mkwl">${st === "ruhig" ? "ruhig · " : st === "pause" ? "Pause · " : ""}KW ${w}</span>` : ""}</h3>${rows}</section>`;
+    box(d); h += `<section class="mday${d === t ? " now" : ""}${hol || sp ? " hol" : ""}${showKw ? " wks" : ""}" data-d="${d}" data-e="${d}"${showKw ? ` data-wk="${mobMon(d)}"` : ""}><h3 data-mday="${d}" role="button" tabindex="0"><span class="mdl">${pre}${mobDLab(d)}</span>${tags ? `<span class="mtg">${tags}</span>` : ""}${showKw && stWord(st) ? `<span class="mkwl">${stWord(st)}</span>` : ""}</h3>${rows}</section>`;
   }
-  flush();
+  flush(); if (boxWk) h += `</div>`;
   return h;
 }
 /* Eintrag zum Datum: „contain“ = Eintrag, der den Tag enthält (sonst nächster), „next“ = erster Eintrag ab dem Datum */
