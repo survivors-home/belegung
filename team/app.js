@@ -178,6 +178,14 @@ const md2de = v => v && /^\d\d-\d\d$/.test(v) ? v.slice(3)+"."+v.slice(0,2)+"." 
 const de2md = v => { const m = String(v||"").trim().match(/^(\d{1,2})\.(\d{1,2})\.?$/); return m ? String(m[2]).padStart(2,"0")+"-"+String(m[1]).padStart(2,"0") : ""; };
 const ov = (a1,a2,b1,b2) => a1 < b2 && b1 < a2;
 
+/* v108: Termineinladung bei Hybrid – ab fix/in WP ohne Haken = Hinweis, veröffentlicht = Fehler; nur kommende Termine */
+const INV_TXT = "Termineinladung an Referenten noch nicht verschickt (hybrid)";
+function invIssue(e, today){
+  if (!e.hybrid || e.invSent || e.kind === "notiz" || e.kind === "vermietung" || e.status === "abgesagt" || !e.date || e.date < (today || todayStr())) return null;
+  if (e.status === "veröffentlicht") return {l:"err", t:INV_TXT};
+  if (e.status === "fix" || e.status === "in WP angelegt") return {l:"warn", t:INV_TXT};
+  return null;
+}
 function computeIssues(list){
   const out = new Map(), zk = new Set(); out.zones = [];
   /* z = Fehlerstelle {from, to, lanes:[Räume | "__ci"]} – wird in der Wochenansicht als Markierung gezeichnet */
@@ -207,6 +215,7 @@ function computeIssues(list){
     if (!e.room) add(e,"info","Raum offen");
     if (e.room === "DG (Notfall)" && !e.fixed) add(e,"warn","DG ist nur Notfall-Ausweichfläche");
     { const dl = deadlineOf(e); if (dl) add(e, dl.l, dl.t); }
+    { const iv = invIssue(e, today); if (iv) add(e, iv.l, iv.t); }
     for (const rid of (e.refs||[])){
       const r = S.referents[rid]; if (!r) continue;
       if ((r.blocked||[]).includes(w)) add(e,"err",r.name+" kann nicht "+WDL[w]);
@@ -469,7 +478,7 @@ const wkLegend = () => {
 };
 let UMB = new Map();
 /* Alternativen: mögliche Lagen des geöffneten Termins in der angezeigten Woche (gleiche Dauer und Räume, alle Prüfregeln inkl. Reihe und Referent) */
-const ALT_IGN = /^Online-Frist|^Vorwarnung|Startzeit offen|Raum offen/;
+const ALT_IGN = /^Online-Frist|^Vorwarnung|Startzeit offen|Raum offen|^Termineinladung/;
 function altSlots(dr, base, d){
   const dayL = base.filter(e => e.date === d), b0 = new Set();
   for (const [id,a] of computeIssues(dayL)) for (const x of a) if (x.l === "err") b0.add(id + "|" + x.t);
@@ -1492,7 +1501,8 @@ function evForm(e){
   <details class="sec full s-d" open><summary>Raum und Ablauf</summary><div class="form">
    <label class="full">Raum<select name="room"><option value="">offen</option>${opt(ROOMS, e.room)}</select></label>
    <label class="full">Möblierung Workshopraum <span class="hint">${esc(ser.id ? "leer = aus Reihe: " + (ser.furn || "nicht festgelegt") : "nur bei Nutzung des Workshopraums")}</span><select name="furn"><option value="">${ser.id ? "aus Reihe" : "–"}</option>${opt(FURN, e.furn)}</select></label>
-   <label class="cb"><input type="checkbox" name="hybrid" ${e.hybrid?"checked":""}> Hybrid / Live</label>
+   <label class="cb"><input type="checkbox" name="hybrid" ${e.hybrid?"checked":""}> Hybrid / Live</label><input type="hidden" name="sebAuto" value="${e.sebAuto ? "1" : ""}">
+   <div class="invbox full" data-invbox="1"${e.hybrid ? "" : " hidden"}><a class="btn" data-invite="1" href="#" target="_blank" rel="noopener">Termineinladung</a><label class="cb"><input type="checkbox" name="invSent" ${e.invSent && !e.__dup ? "checked" : ""}> Einladung verschickt</label>${qh(INV_HELP)}<span class="invhint" aria-live="polite"></span></div>
    <label class="full">Parallelbetrieb im EG <span class="hint">${esc((ser.id ? "leer = aus Reihe: Stufe " + serLevel(ser) + " · " : "") + EGL_HELP)}</span><select name="egLevel">${ser.id ? `<option value="">aus Reihe: ${esc(serLevel(ser) + " · " + eglName(serLevel(ser)))}</option>` : ""}${opt(EGL.map(x => [String(x[0]), x[0] + " · " + x[1]]), +e.egLevel ? String(e.egLevel) : (ser.id ? "" : String(e.excl ? 3 : 1)))}</select></label>
    <label>Draußen <span class="hint">${esc(ser.id ? "leer = aus Reihe: " + (ser.outdoor ? "ja" : "nein") : "")} – steuert die Prüfung auf Sonnenuntergang</span><select name="outdoor"><option value="">${ser.id ? "aus Reihe" : "–"}</option>${opt([["ja","findet (teilweise) draußen statt"],["nein","drinnen"]], e.outdoor === true ? "ja" : e.outdoor)}</select></label>
    <label>Check-in<select name="checkin"><option value="">${esc(ser.id ? "aus Reihe: " + ciLab[serCi] : "Standard (30 Min vor Beginn)")}</option>${opt([["vorher","30 Min vor Beginn"],["durchgehend","durchgehend: 30 Min vorher und während der ganzen Veranstaltung"],["keiner","kein Check-in"]], e.checkin)}</select></label>
@@ -1543,7 +1553,7 @@ function serForm(s){
   <details class="sec full s-d" open><summary>Raum und Ablauf</summary><div class="form">
    <label class="full">Raum<select name="room"><option value="">offen</option>${opt(ROOMS, s.room)}</select></label>
    <label class="full">Möblierung Workshopraum <span class="hint">(nur wenn die Reihe den Workshopraum nutzt; die Jahresplanung legt Termine mit gleicher Möblierung möglichst hintereinander, um Umbauten zu sparen)</span><select name="furn"><option value="">– nicht festgelegt –</option>${opt(FURN, s.furn)}</select></label>
-   <label class="cb"><input type="checkbox" name="hybrid" ${s.hybrid?"checked":""}> Hybrid / Live</label>
+   <label class="cb"><input type="checkbox" name="hybrid" ${s.hybrid?"checked":""}> Hybrid / Live</label><input type="hidden" name="sebAuto" value="${s.sebAuto ? "1" : ""}">
    <label class="full">Parallelbetrieb im EG <span class="hint">${esc(EGL_HELP)}</span><select name="egLevel">${opt(EGL.map(x => [String(x[0]), x[0] + " · " + x[1]]), String(serLevel(s)))}</select></label>
    <label class="cb full"><input type="checkbox" name="outdoor" ${s.outdoor?"checked":""}> findet (teilweise) draußen statt</label>
    <label class="full">Check-in<select name="checkin">${opt([["vorher","30 Min vor Beginn"],["durchgehend","durchgehend: 30 Min vorher und während der ganzen Veranstaltung"],["keiner","kein Check-in"]], s.checkin || (s.form==="Beratung" ? "durchgehend" : "vorher"))}</select></label>
@@ -1641,14 +1651,42 @@ async function saveDrawer(kind, then){
     const id = dr.id || newId("events"); o = Object.assign({}, S.events[id] || (dr.preset && dr.preset.__dup ? dr.preset : {}), o, {id}); delete o.__dup;
     if ("egLevel" in o){ o.egLevel = +o.egLevel || null; o.excl = egLevel(o) >= 3; }
     if (!o.title && o.seriesId) o.title = (S.series[o.seriesId]||{}).name || "";
+    o.sebAuto = o.sebAuto === "1" && (o.refs||[]).includes(SEB_ID); o.invSent = !!o.invSent;
     if (await put("events", id, o)){ S.events[id] = o; closeDrawer(true); toast("Termin gespeichert"); render(); }
   } else if (kind === "ser"){
     const id = dr.id || newId("series"); o = Object.assign({}, S.series[id] || {}, o, {id, unconfirmed: []}); if ("egLevel" in o){ o.egLevel = +o.egLevel || 1; o.excl = o.egLevel >= 3; o.exclStrict = o.egLevel === 4; } o.active = o.activeSel !== "pausiert"; delete o.activeSel; o.seasonFrom = de2md(o.seasonFrom); o.seasonTo = de2md(o.seasonTo);
+    o.sebAuto = o.sebAuto === "1" && (o.refs||[]).includes(SEB_ID);
     if (await put("series", id, o)){ S.series[id] = o; toast("Reihe gespeichert"); if (then && S.series[then]) openDrawer("ser", then); else if (dr.back && S.events[dr.back.id]) openDrawer("ev", dr.back.id); else closeDrawer(); render(); }
   } else {
     const id = dr.id || newId("referents"); o = Object.assign({}, S.referents[id] || {}, o, {id});
     if (await put("referents", id, o)){ S.referents[id] = o; closeDrawer(); toast("Person gespeichert"); render(); }
   }
+}
+/* v108: Sebastian bei Hybrid automatisch als Referent; Termineinladung über Outlook im Web */
+const SEB_ID = "sebastian-roeder", SEB_MAIL = "sebastian.roeder@survivors-home.de";
+const INV_LOC = "SURVIVORS HOME Foundation, Hildegardstr. 31, 10715 Berlin";
+const INV_HELP = `<b>Termineinladung (nur bei Hybrid)</b><ul><li>„Termineinladung“ öffnet in Outlook im Web eine neue Besprechung: Titel, Beginn bis Ende, Ort und alle Referenten des Termins mit E-Mail-Adresse als Teilnehmer sind eingetragen. In Outlook prüfen und „Senden“ klicken.</li><li>Verwendet die aktuellen Angaben im Dialog, auch wenn sie noch nicht gespeichert sind.</li><li>„Einladung verschickt“ abhaken, sobald die Einladung raus ist, und den Termin speichern.</li><li>Prüfung: ohne Haken ab Status „fix“ oder „in WP angelegt“ ein Hinweis, bei „veröffentlicht“ ein Fehler (nur kommende Termine).</li><li>Ändern sich Datum, Beginn oder Dauer, wird der Haken entfernt – dann die Einladung neu senden.</li><li>Beim Einschalten von „Hybrid / Live“ wird Sebastian automatisch als Referent ergänzt (beim Ausschalten wieder entfernt, wenn er automatisch ergänzt wurde).</li></ul>`;
+function sebSync(f, on){
+  const sel = f.elements.refs, au = f.elements.sebAuto; if (!sel) return;
+  const o = [...sel.options].find(x => x.value === SEB_ID); if (!o) return;
+  if (on && !o.selected){ o.selected = true; if (au) au.value = "1"; toast("Sebastian als Referent ergänzt (Hybrid)"); }
+  else if (!on && o.selected && au && au.value === "1"){ o.selected = false; au.value = ""; toast("Sebastian als Referent entfernt"); }
+}
+function invToggle(f){ const b = f.querySelector("[data-invbox]"); if (b) b.hidden = !(f.elements.hybrid && f.elements.hybrid.checked); }
+function berlinOff(d){ try { const t = new Date(Date.UTC(+d.slice(0,4), +d.slice(5,7)-1, +d.slice(8,10), 12)).toLocaleString("en-US", {timeZone:"Europe/Berlin", timeZoneName:"shortOffset"}); const m = /GMT([+-]\d+)/.exec(t); const h = m ? +m[1] : 1; return (h < 0 ? "-" : "+") + pad(Math.abs(h)) + ":00"; } catch(x){ return "+01:00"; } }
+function inviteInfo(e){
+  if (!e || !e.date || !e.start || e.allDay) return {err:"Für die Einladung Datum und Beginn eintragen (nicht ganztägig)."};
+  const s = t2m(e.start), en = s + (+e.dur || 0); if (!(+e.dur > 0)) return {err:"Für die Einladung die Dauer eintragen."};
+  const rs = (e.refs||[]).map(id => S.referents[id]).filter(Boolean);
+  const mail = r => (r.email || (r.id === SEB_ID ? SEB_MAIL : "")).trim();
+  const to = [...new Set(rs.map(mail).filter(Boolean))], miss = rs.filter(r => !mail(r)).map(r => r.name);
+  const off = berlinOff(e.date), dt = m => e.date + "T" + m2t(m) + ":00" + off;
+  const day = WD[wdOf(e.date)] + "., " + fmtY(e.date) + ", " + e.start + "–" + m2t(en) + " Uhr";
+  const subject = evName(e) + " (hybrid)";
+  const body = "Einladung zur hybriden Veranstaltung „" + evName(e) + "“ im SURVIVORS HOME (vor Ort mit Live-Übertragung). Termin: " + day + ". Ort: " + INV_LOC + ".";
+  const q = {path:"/calendar/action/compose", rru:"addevent", subject, startdt:dt(s), enddt:dt(en), location:INV_LOC, body, to:to.join(",")};
+  const url = "https://outlook.office.com/calendar/0/deeplink/compose?" + Object.entries(q).map(([k,v]) => k + "=" + encodeURIComponent(v)).join("&");
+  return {url, to, miss};
 }
 function applySeries(sid){
   const s = S.series[sid], f = $("#f"); if (!s || !f) return;
@@ -1657,6 +1695,8 @@ function applySeries(sid){
   if (!f.elements.start.value) set("start", s.start);
   f.elements.hybrid.checked = !!s.hybrid; if (f.elements.egLevel) f.elements.egLevel.value = "";
   [...f.elements.refs.options].forEach(o => o.selected = (s.refs||[]).includes(o.value));
+  if (f.elements.sebAuto) f.elements.sebAuto.value = s.hybrid && s.sebAuto ? "1" : "";
+  if (s.hybrid) sebSync(f, true); invToggle(f);
 }
 
 /* ---------- Terminvorschläge ---------- */
@@ -1671,7 +1711,7 @@ function genCands(){
     if (d >= from && d <= to){
       const ws = weekStatus(d);
       if (skip && (ws === "pause" || (ws === "ruhig" && s.quiet !== "ja"))){ mon += 7; continue; }
-      out.push({id:"__c"+out.length, seriesId:s.id, title:s.name, date:d, start, dur:s.dur||90, room:s.room||"", theme:s.theme||"", hybrid:!!s.hybrid, excl:!!s.excl, refs:s.refs||[], status:"Option", kind:"va"});
+      out.push({id:"__c"+out.length, seriesId:s.id, title:s.name, date:d, start, dur:s.dur||90, room:s.room||"", theme:s.theme||"", hybrid:!!s.hybrid, excl:!!s.excl, refs:s.refs||[], sebAuto:!!(s.hybrid && s.sebAuto), status:"Option", kind:"va"});
     }
     mon += every*7;
   }
@@ -1822,6 +1862,9 @@ async function exportCsv(){
 /* ---------- Ereignisse ---------- */
 document.addEventListener("click", async ev => {
   if (ev.target.closest && ev.target.closest("a.clink")) return;
+  { const a = ev.target.closest && ev.target.closest("[data-invite]");
+    if (a){ const info = inviteInfo(draftEvent()); if (info.err){ ev.preventDefault(); toast(info.err); return; }
+      a.href = info.url; if (info.miss.length) toast("Ohne E-Mail, bitte in Outlook ergänzen: " + info.miss.join(", ")); else if (!info.to.length) toast("Keine Referenten mit E-Mail – Teilnehmer in Outlook eintragen"); return; } }
   const t = ev.target.closest("[data-sentyes],[data-sentno],[data-zone],[data-acc],[data-accg],[data-newround],[data-amode],[data-pfilt],[data-pmail],[data-pcopy],[data-psent],[data-pans],[data-pevs],[data-pparse],[data-papply],[data-psave],[data-rmail],[data-rcopy],[data-rsent],[data-rremind],[data-rans],[data-rhist],[data-aparse],[data-asave],[data-aapply],[data-delavail],[data-ydet],[data-sernav],[data-evnav],[data-openser],[data-back],[data-quick],[data-view],[data-wk],[data-goweek],[data-ev],[data-new],[data-wnav],[data-wtoday],[data-prback],[data-dayweek],[data-ytoday],[data-alt],[data-altgo],[data-altset],[data-altcopy],[data-bk],[data-ser],[data-newser],[data-ref],[data-newref],[data-close],[data-save],[data-del],[data-delok],[data-dup],[data-gen],[data-take],[data-csv],[data-delabs],[data-serf],[data-lpast]");
   const guard = () => { if (UI.drawer && UI.dirty && !UI.dirtyOk){ UI.dirtyOk = true; clearTimeout(UI.dirtyT); UI.dirtyT = setTimeout(() => UI.dirtyOk = false, 4000); toast("Ungespeicherte Änderungen – zum Verwerfen erneut klicken"); return true; } return false; };
   if (!t) {
@@ -1903,7 +1946,7 @@ document.addEventListener("click", async ev => {
   if (ds.save) return saveDrawer(ds.save, ds.then);
   if (ds.del){ t.hidden = true; $("[data-delok]").hidden = false; return; }
   if (ds.delok){ const d = UI.drawer, col = {ev:"events",ser:"series",ref:"referents"}[d.kind], map = {ev:S.events,ser:S.series,ref:S.referents}[d.kind]; await del(col, d.id); delete map[d.id]; closeDrawer(true); toast("Gelöscht"); return render(); }
-  if (ds.dup){ const from = UI.drawer.id, o = Object.assign({}, S.events[from] || {}, draftEvent()); closeDrawer(true, true); delete o.id; o.start = ""; o.__dup = from; openDrawer("ev", null, o); const st = $("#drawer input[name=start]"); if (st && !st.disabled) st.focus(); return; }
+  if (ds.dup){ const from = UI.drawer.id, o = Object.assign({}, S.events[from] || {}, draftEvent()); closeDrawer(true, true); delete o.id; o.start = ""; o.invSent = false; o.__dup = from; openDrawer("ev", null, o); const st = $("#drawer input[name=start]"); if (st && !st.disabled) st.focus(); return; }
   if (ds.gen) return genCands();
   if (ds.take) return takeCands();
   if (ds.csv) return exportCsv();
@@ -1914,6 +1957,10 @@ document.addEventListener("input", ev => {
   if (dp){ const mi = dp.querySelector('input[type="number"]'), hm = dp.querySelector(".dhm");
     if (ev.target === mi){ hm.value = fmtHM(mi.value); hm.classList.remove("bad"); }
     else { const v = parseHM(hm.value); hm.classList.toggle("bad", v === null); if (v !== null){ mi.value = v; if (mi.closest("#drawer #f")) refreshLive(); } } }
+  if (ev.target.closest("#drawer #f")){ const f0 = ev.target.closest("#f");
+    if (ev.target.name === "hybrid"){ sebSync(f0, ev.target.checked); invToggle(f0); }
+    { const nm0 = ev.target.name || (dp && dp.querySelector('input[type="number"]').name), iv = f0.elements.invSent;
+      if (iv && iv.checked && ["date","start","dur","allDay"].includes(nm0)){ iv.checked = false; const h = f0.querySelector(".invhint"); if (h) h.textContent = "Zeit geändert – Einladung neu senden"; } } }
   if (ev.target.closest("#drawer #f")){ const nm = ev.target.name || (dp && dp.querySelector('input[type="number"]').name);
     if (UI.view !== "woche" && PREV_FIELDS.includes(nm)) weekPreview(true);
     refreshLive(); markChanges(); }
