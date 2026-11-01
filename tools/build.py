@@ -7,7 +7,7 @@ Der Export-Ordner enthält events/*.json, series/*.json, absences/*.json, meta/w
 (so, wie ihn das Datenbank-Werkzeug von Claude speichert).
 
 Veröffentlicht werden NUR: Datum, belegte Zeit des Hauses (inkl. Auf-/Abbau, Check-in, Nachlauf),
-Themenbereich, Zustand (vorgemerkt/fest), Titel nur bei Status „veröffentlicht“.
+Themenbereich, Zustand (vorgemerkt/fest), Titel nur bei Status „veröffentlicht“ (Website-Titel, falls vom Website-Abgleich bekannt).
 Keine Räume, Referenten, Notizen, Ideen, Absagen, Anlässe von Sperrtagen.
 """
 import json, os, sys, glob, datetime, html, re
@@ -88,8 +88,10 @@ def build(folder, out_path):
             th = e.get("theme") if e.get("theme") in THEMES else "Sonstige"
             x["t"] = THEMES.index(th)
         if status == "veröffentlicht" and kind != "vermietung":
-            x["n"] = e.get("title") or s.get("name") or ""
-            u = ((e.get("web") or {}).get("url") or "").strip()
+            web = e.get("web") or {}
+            u = (web.get("url") or "").strip()
+            # öffentlicher Titel der Website (Website-Abgleich), sonst Planer-Titel bzw. Name der Reihe
+            x["n"] = (web.get("title") or "").strip() or e.get("title") or s.get("name") or ""
             if WEB_RE.match(u):
                 x["u"] = u
         if e.get("allDay"):
