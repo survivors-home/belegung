@@ -248,7 +248,7 @@ table.list{border-collapse:collapse;width:100%;font-size:.88rem}
 .form{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .form .full{grid-column:1/-1}
 .form label{display:grid;gap:4px;font-size:.8rem;color:var(--muted);font-weight:700;min-width:0}
-.form label.cb{display:flex;align-items:center;gap:8px;font-weight:400;color:var(--ink);font-size:.9rem}
+.form label.cb{display:flex;align-items:center;gap:8px;font-weight:700;color:var(--muted);font-size:.8rem}
 .form .lbl{display:grid;gap:4px;font-size:.8rem;color:var(--muted);font-weight:700}
 .form .wds{display:flex;gap:4px;flex-wrap:wrap}
 .form .wds label{display:inline-flex;align-items:center;gap:3px;font-weight:400;color:var(--ink);font-size:.85rem;border:1px solid var(--line);padding:2px 7px;border-radius:999px}
@@ -366,7 +366,8 @@ table.list{border-collapse:collapse;width:100%;font-size:.88rem}
 .altlist h3{margin:0;font-size:1rem}
 .altlist .alsub{color:var(--muted);font-size:.85rem}
 .altlist .altools{margin-left:auto;display:flex;gap:8px;align-items:center}
-.altlist .altools select{height:30px}
+.altlist .altools{flex-wrap:wrap}
+.altlist .altools select{height:auto;min-height:34px;padding:4px 28px 4px 8px;line-height:1.35}
 .altlist .alsum{font-size:.82rem;color:var(--muted);margin:6px 0 4px}
 .altlist .alrows{max-height:420px;overflow:auto}
 .altlist .alk{font-size:.75rem;font-weight:700;color:var(--violet);border-top:1px solid var(--line);padding:6px 0 2px;margin-top:4px}
@@ -707,7 +708,7 @@ body.mobmode{margin:0}
 .mday h3 .mtg .lv{font-size:.72rem;cursor:pointer}
 .mday h3 .mkwl{margin-left:auto;font-size:.8rem;color:var(--violet);white-space:nowrap}
 .mlist .mwk{display:flex;flex-direction:column}
-.mlist .mwk.ruhig{outline:3px solid var(--violet-2);outline-offset:-3px;position:relative;z-index:1}
+.mlist .mwk.ruhig{outline:1.5px solid var(--violet-2);outline-offset:-1.5px;position:relative;z-index:1}
 .mlist .mwk.pause{outline:2px dashed var(--muted);outline-offset:-2px;position:relative;z-index:1}
 .mlist .mwk.ruhig .mkwl,.mlist .mwk.ruhig .mskip em{color:var(--violet-2);font-weight:700}
 .mlist .mwk.pause .mkwl,.mlist .mwk.pause .mskip em{color:var(--muted);font-weight:700}
@@ -724,6 +725,7 @@ body.mobmode{margin:0}
 .mli.st-abg .mn{text-decoration:line-through;color:var(--muted)}
 .mli.bad .mn::after{content:" !";color:var(--err);font-weight:700}
 .mskip{position:relative;display:flex;align-items:center;gap:8px;padding:0 12px;height:calc(var(--n,1) * var(--eh,48px));font-size:.66rem;color:var(--muted);border-top:1px solid var(--line);background:repeating-linear-gradient(180deg,transparent 0 calc(var(--eh,48px) - 1px),color-mix(in srgb,var(--line) 70%,transparent) calc(var(--eh,48px) - 1px) var(--eh,48px))}
+.mskip.mhol span{font-size:.6rem;opacity:.75}
 .mskip em{position:absolute;right:12px;top:4px;font-style:normal;font-size:.8rem;color:var(--violet)}
 .mlist .wks{border-top:2px solid color-mix(in srgb,var(--violet) 45%,transparent)}
 .mskip::before,.mskip::after{content:"";flex:1;border-top:1px dashed var(--fline)}
@@ -790,7 +792,7 @@ body.team [data-mobon]{display:none!important}
   function start(data){
     window.__SHP_OFFLINE = true; window.__SHP_TEAM = true; window.__SHP_DATA = data;
     document.getElementById("lock").hidden = true;
-    const s = document.createElement("script"); s.src = "app.js?v=109"; document.body.appendChild(s);
+    const s = document.createElement("script"); s.src = "app.js?v=110"; document.body.appendChild(s);
   }
   async function tryPw(pw, remember){ try { const d = await open(pw); if (remember){ try { localStorage.setItem(KEY, pw); } catch(e){} } start(d); return true; } catch(e){ return false; } }
   document.getElementById("lkf").addEventListener("submit", async ev => { ev.preventDefault(); const pw = document.getElementById("lkpw").value; if (!(await tryPw(pw, true))) show(true); });

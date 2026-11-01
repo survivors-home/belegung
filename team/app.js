@@ -473,49 +473,57 @@ const wkLegend = () => {
    + row(smp(`<span class="fur" style="left:8%">□</span><span class="fur" style="left:30%">○</span><span class="fur" style="left:52%">≡</span><span class="fur chg" style="left:72%">⇄ ⊞</span>`), "Workshopraum-Möblierung: □ leer · ○ Stuhlkreis · ≡ Stuhlreihen · ⊞ Tische mit Stühlen; ⇄ = vorher Umbau nötig (Maus zeigt von → nach)")
    + row(`<div class="lgs lgn"></div>`, "Schraffierter Streifen zwischen Tagen: Nacht (21–10 Uhr)")
    + row(`<div class="lgs" style="position:relative;height:34px"><button class="blk" style="left:5%;width:45%;top:2px;bottom:auto;height:13px;background-color:${c};--c:${c}"></button><div class="cnx mid" style="left:50%;top:15px;bottom:auto;height:4px"></div><div class="cnx t-dn" style="left:50%;top:19px;height:2px"></div><button class="blk" style="left:50%;width:30%;top:21px;bottom:auto;height:11px;background-color:${c};--c:${c}"></button></div>`, "Abschluss in einem anderen Raum (z. B. Walk and Talk am Esstisch): dunkle Verbindungslinie mit Pfeil vom Hauptteil zum Abschluss. Maus auf einen Teil hebt alle Teile derselben Veranstaltung hervor.")
-   + row(`<div class="lgs" style="position:relative"><div class="alt ok" style="left:4%;width:44%"></div><div class="alt wn" style="left:52%;width:44%"></div></div>`, "Alternativen (nur bei geöffnetem Termin): grün schraffiert = hier passt der Termin mit gleicher Dauer und gleichem Raum ohne Konflikt, gelb = nur mit Hinweis (z. B. ruhige Woche, Lärm). Geprüft werden alle Regeln: andere Termine, Reihe, Referent, Feiertage, Pausen, Kernöffnungszeit. Mit ← → durch die Wochen blättern, die Schraffur rechnet je Woche neu. Maus auf die Schraffur zeigt die möglichen Beginnzeiten. Schalter oben: „Alternativen ausblenden“. Unter dem Raster listet „Mögliche Zeiten“ alle Startfenster über mehrere Wochen (kopierbar, übernehmbar).")
+   + row(`<div class="lgs" style="position:relative"><div class="alt ok" style="left:4%;width:44%"></div><div class="alt wn" style="left:52%;width:44%"></div></div>`, "Alternativen (nur bei geöffnetem Termin): grün schraffiert = hier passt der Termin mit gleicher Dauer und gleichem Raum ohne Konflikt, gelb = nur mit Hinweis (z. B. ruhige Woche, Lärm). Geprüft werden alle Regeln: andere Termine, Reihe, Referent, Feiertage, Pausen, Kernöffnungszeit. Beginn in 30-Minuten-Schritten, Montag bis Freitag (Samstag nur bei Samstagsterminen), Wochen mit Programmpause ohne Schraffur, ruhige Wochen gelb (außer die Reihe erlaubt ruhige Wochen). Mit ← → durch die Wochen blättern, die Schraffur rechnet je Woche neu. Maus auf die Schraffur zeigt die möglichen Beginnzeiten und bei Gelb den Grund. Schalter oben: „Alternativen ausblenden“. Unter dem Raster listet „Mögliche Zeiten“ alle Startfenster über mehrere Wochen (als Tabelle kopierbar, übernehmbar).")
    + `</div><div class="notes">Kopfzeile: ← → blättert, Datumsfeld springt zu einer Woche, rechts der Wochenstatus (Klick: belebt → ruhig → Pause). „+ Termin“ legt einen Termin an diesem Tag an. Oben Mo–Mi, unten Do–Sa. Zeitachse je Tag 10–21 Uhr, länger, wenn Termine früher beginnen oder später enden. Maus auf einen Block zeigt Name, Zeit und Raum.</div>`;
 };
 let UMB = new Map();
 /* Alternativen: mögliche Lagen des geöffneten Termins in der angezeigten Woche (gleiche Dauer und Räume, alle Prüfregeln inkl. Reihe und Referent) */
 const ALT_IGN = /^Online-Frist|^Vorwarnung|Startzeit offen|Raum offen|^Termineinladung/;
+/* v110: Beginn nur in 30-Min-Schritten; nur Mo–Fr (Samstag nur, wenn der Originaltermin auf einem Samstag liegt); Programmpausen ausgelassen */
+const ALT_STEP = 30;
+function altOrig(dr){ const id = UI.drawer && UI.drawer.kind === "ev" && UI.drawer.id, o = id && S.events[id]; return (o && o.date) || UI.altD0 || (dr && dr.date) || ""; }
+function altDayOk(dr, d){ const w = wdOf(d); if (w === 0) return false; if (w === 6 && wdOf(altOrig(dr) || d) !== 6) return false; return weekStatus(d) !== "pause"; }
 function altSlots(dr, base, d){
-  const dayL = base.filter(e => e.date === d), b0 = new Set();
+  if (!altDayOk(dr, d)) return [];
+  const dayL = base.filter(e => e.date === d), b0 = new Set(), quiet = weekStatus(d) === "ruhig" && ((S.series[dr.seriesId] || {}).quiet || "nein") !== "ja";
   for (const [id,a] of computeIssues(dayL)) for (const x of a) if (x.l === "err") b0.add(id + "|" + x.t);
   const dur = +dr.dur || 0, aft = afterOf(dr), out = [];
-  for (let s = t2m(OPEN_FROM); s + dur + aft <= t2m(OPEN_TO); s += 15){
+  for (let s = Math.ceil(t2m(OPEN_FROM) / ALT_STEP) * ALT_STEP; s + dur + aft <= t2m(OPEN_TO); s += ALT_STEP){
     const c = Object.assign({}, dr, {id:"__alt", date:d, start:m2t(s)}); delete c.__draft;
-    let bad = false, wn = false;
+    let bad = false; const why = [];
     for (const [id,a] of computeIssues(dayL.concat([c]))){ for (const x of a){ if (ALT_IGN.test(x.t)) continue;
-      if (id === "__alt"){ if (x.l === "err") bad = true; else if (x.l === "warn") wn = true; } else if (x.l === "err" && !b0.has(id + "|" + x.t)) bad = true; } if (bad) break; }
-    if (!bad) out.push({s, w:wn});
+      if (id === "__alt"){ if (x.l === "err") bad = true; else if (x.l === "warn" && !why.includes(x.t)) why.push(x.t); } else if (x.l === "err" && !b0.has(id + "|" + x.t)) bad = true; } if (bad) break; }
+    if (quiet && !why.some(t => /^Ruhige Woche/.test(t))) why.unshift("Ruhige Woche");
+    if (!bad) out.push({s, w:why.length > 0, r:why.join(" · ")});
   }
   return out;
 }
 /* Startzeiten zu Bereichen zusammenfassen: "10:00–11:30, 14:00" */
-const altRanges = arr => { const r = []; arr.forEach(x => { const l = r[r.length-1]; if (l && x.s - l[1] === 15) l[1] = x.s; else r.push([x.s, x.s]); }); return r.map(([a,b]) => a === b ? m2t(a) : m2t(a) + "–" + m2t(b)).join(", "); };
+const altRanges = arr => { const r = []; arr.forEach(x => { const l = r[r.length-1]; if (l && x.s - l[1] === ALT_STEP) l[1] = x.s; else r.push([x.s, x.s]); }); return r.map(([a,b]) => a === b ? m2t(a) : m2t(a) + "–" + m2t(b)).join(", "); };
 function altGo(d){ UI.week = d; if (UI.dayOnly) UI.dayOnly = d; UI.restoreY = 0; UI.altFlash = d; render(); }
 /* Liste möglicher Zeiten (v107): alle Startfenster je Tag über einen wählbaren Zeitraum, Kopie für Mailvorschläge */
 const ALT_RG = [["4w","4 Wochen"],["3m","3 Monate"],["jahr","bis Jahresende"]];
 const WDF = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
 let ALTC = null;
 /* aufeinanderfolgende Startzeiten gleicher Art (ok / mit Hinweis) zu Fenstern zusammenfassen */
-const altWins = arr => { const r = []; arr.forEach(x => { const l = r[r.length-1]; if (l && x.s - l.b === 15 && l.w === x.w) l.b = x.s; else r.push({a:x.s, b:x.s, w:x.w}); }); return r; };
+const altWins = arr => { const r = []; arr.forEach(x => { const l = r[r.length-1]; if (l && x.s - l.b === ALT_STEP && l.w === x.w && l.r === (x.r || "")) l.b = x.s; else r.push({a:x.s, b:x.s, w:x.w, r:x.r || ""}); }); return r; };
+/* v110: „bis Jahresende“ = 31.12. des laufenden Jahres; liegen bis dahin weniger als 3 Monate (ab 1. Oktober), 31.12. des Folgejahres */
+const altYearEnd = from => { const y = +from.slice(0,4); return (from.slice(5) >= "10-01" ? y + 1 : y) + "-12-31"; };
 function altSpan(){
   /* Beginn bleibt fest, solange der Dialog offen ist (Woche beim ersten Anzeigen), damit Sprünge aus der Liste die Liste nicht verschieben */
-  if (!UI.altFrom) UI.altFrom = UI.dayOnly || UI.week || todayStr();
+  if (!UI.altFrom){ UI.altFrom = UI.dayOnly || UI.week || todayStr(); const dr0 = PREV && PREV.list.find(e => e.__draft); UI.altD0 = dr0 ? dr0.date : ""; }
   const base = UI.altFrom, [y,w] = isoWeek(base), mon = mondayOf(y,w), td = todayStr();
   const from = mon < td ? td : mon, rg = UI.altRange || "4w";
-  const to = rg === "jahr" ? from.slice(0,4) + "-12-31" : rg === "3m" ? S_(D(mon) + 90) : S_(D(mon) + 27);
+  const to = rg === "jahr" ? altYearEnd(from) : rg === "3m" ? S_(D(mon) + 90) : S_(D(mon) + 27);
   return {from, to, rg};
 }
 function altList(dr, base){
   const sp = altSpan();
   const key = JSON.stringify([sp, PREV_FIELDS.filter(k => k !== "date" && k !== "start").map(k => dr[k]), dr.refs, dr.excl, dr.kind, dr.theme,
-    base.map(e => [e.id, e.date, e.start, e.dur, e.room, e.status, e.allDay, (e.refs||[]).join()].join("|")).join(";"), S.weeks, Object.keys(S.absences||{}).length]);
+    base.map(e => [e.id, e.date, e.start, e.dur, e.room, e.status, e.allDay, (e.refs||[]).join()].join("|")).join(";"), S.weeks, Object.keys(S.absences||{}).length, wdOf(altOrig(dr) || "2027-01-04") === 6]);
   if (ALTC && ALTC.key === key) return ALTC;
   const days = [];
-  for (let n = D(sp.from); n <= D(sp.to); n++){ const d = S_(n); if (wdOf(d) === 0) continue;
+  for (let n = D(sp.from); n <= D(sp.to); n++){ const d = S_(n); if (!altDayOk(dr, d)) continue;
     const ws = altWins(altSlots(dr, base, d)); if (ws.length) days.push({d, ws}); }
   return ALTC = {key, sp, days};
 }
@@ -527,17 +535,37 @@ function altListHtml(dr, base){
   L.days.forEach(x => { const [y,w] = isoWeek(x.d), k = y + "-W" + pad(w), st = S.weeks[k] || "belebt";
     if (k !== lastK){ lastK = k; rows += `<div class="alk">KW ${w}${st !== "belebt" ? " · " + stLab(st) : ""}</div>`; }
     rows += `<div class="ald"><button class="aldt" data-altgo="${x.d}" title="Tag in der Wochenansicht zeigen">${WD[wdOf(x.d)]} ${fmtY(x.d)}</button><span class="alws">${x.ws.map(v =>
-      `<span class="alc ${v.w ? "wn" : "ok"}"><button class="alcg" data-altgo="${x.d}" title="${esc((v.w ? "Nur mit Hinweis" : "Ohne Konflikt") + " – Beginn " + altWinTxt(v) + " Uhr. Klick: Tag in der Wochenansicht zeigen")}">${altWinTxt(v)}</button><button class="alcs" data-altset="${x.d}|${m2t(v.a)}" title="${esc("Datum " + fmtY(x.d) + " und Beginn " + m2t(v.a) + " in den Termin übernehmen")}">übernehmen</button></span>`).join("")}</span></div>`; });
-  const help = qh(`<b>Mögliche Zeiten</b><ul><li>Listet alle Startfenster, in denen der geöffnete Termin mit gleicher Dauer und gleichem Raum passt – nach denselben Regeln wie die Schraffur in der Wochenansicht.</li><li>Grün = ohne Konflikt, gelb = nur mit Hinweis (z. B. ruhige Woche, Lärm).</li><li>„14:00–15:30“ heißt: Beginn zwischen 14:00 und 15:30 möglich (15-Minuten-Schritte).</li><li>Zeitraum: ab der Woche, die beim Öffnen des Termins angezeigt war (frühestens heute), 4 Wochen, 3 Monate oder bis zum Jahresende. Die Liste bleibt beim Blättern gleich. Sonntage werden nicht geprüft.</li><li>Klick auf Datum oder Zeit: springt zu diesem Tag in der Wochenansicht. „übernehmen“ setzt Datum und Beginn (Anfang des Fensters) in den Termin; gespeichert wird erst mit „Speichern“.</li><li>„Kopieren“: Liste als Text für eine Vorschlagsmail in die Zwischenablage (ohne Grün/Gelb-Unterscheidung).</li></ul>`);
-  return `<section class="altlist" aria-label="Mögliche Zeiten"><div class="alh"><h3>Mögliche Zeiten${help}</h3><span class="alsub">${esc(evName(dr))} · ${esc(durTxt(dr.dur))} · ${esc(dr.room || "Raum offen")} · ${fmtY(sp.from)}–${fmtY(sp.to)}</span><span class="altools"><select class="in" data-altrg="1" aria-label="Zeitraum">${ALT_RG.map(([v,l]) => `<option value="${v}"${sp.rg === v ? " selected" : ""}>${l}</option>`).join("")}</select><button class="btn" data-altcopy="1"${nW ? "" : " disabled"}>Kopieren</button></span></div>`
+      `<span class="alc ${v.w ? "wn" : "ok"}"><button class="alcg" data-altgo="${x.d}" title="${esc((v.w ? "Nur mit Hinweis: " + (v.r || "–") : "Ohne Konflikt") + " – Beginn " + altWinTxt(v) + " Uhr. Klick: Tag in der Wochenansicht zeigen")}">${altWinTxt(v)}</button><button class="alcs" data-altset="${x.d}|${m2t(v.a)}" title="${esc("Datum " + fmtY(x.d) + " und Beginn " + m2t(v.a) + " in den Termin übernehmen")}">übernehmen</button></span>`).join("")}</span></div>`; });
+  const help = qh(`<b>Mögliche Zeiten</b><ul><li>Listet alle Startfenster, in denen der geöffnete Termin mit gleicher Dauer und gleichem Raum passt – nach denselben Regeln wie die Schraffur in der Wochenansicht.</li><li>Grün = ohne Konflikt, gelb = nur mit Hinweis (z. B. ruhige Woche, Lärm). Maus auf ein gelbes Fenster zeigt den Grund. In ruhigen Wochen gelb, außer die Reihe erlaubt ruhige Wochen.</li><li>„14:00–15:30“ heißt: Beginn zwischen 14:00 und 15:30 möglich (30-Minuten-Schritte, also 14:00, 14:30, 15:00, 15:30).</li><li>Zeitraum: ab der Woche, die beim Öffnen des Termins angezeigt war (frühestens heute), 4 Wochen, 3 Monate oder bis zum Jahresende. Ab 1. Oktober (weniger als 3 Monate bis zum Jahresende) gilt das Ende des Folgejahres; das Jahr steht in der Auswahl. Die Liste bleibt beim Blättern gleich.</li><li>Geprüft werden Montag bis Freitag; Samstag nur, wenn der Termin selbst auf einem Samstag liegt. Wochen mit Programmpause werden ausgelassen. Dasselbe gilt für die Schraffur in der Wochenansicht.</li><li>Klick auf Datum oder Zeit: springt zu diesem Tag in der Wochenansicht. „übernehmen“ setzt Datum und Beginn (Anfang des Fensters) in den Termin; gespeichert wird erst mit „Speichern“.</li><li>„Als Tabelle kopieren“: je Zeitfenster eine Zeile mit den Spalten Wochentag, Datum, Status (grüner/gelber Punkt mit „frei“ bzw. „mit Hinweis“) und Beginn. Lässt sich in Outlook, Word und Excel einfügen; in Excel landen die Werte in getrennten Spalten.</li></ul>`);
+  return `<section class="altlist" aria-label="Mögliche Zeiten"><div class="alh"><h3>Mögliche Zeiten${help}</h3><span class="alsub">${esc(evName(dr))} · ${esc(durTxt(dr.dur))} · ${esc(dr.room || "Raum offen")} · ${fmtY(sp.from)}–${fmtY(sp.to)}</span><span class="altools"><select class="in" data-altrg="1" aria-label="Zeitraum">${ALT_RG.map(([v,l]) => `<option value="${v}"${sp.rg === v ? " selected" : ""}>${v === "jahr" ? l + " " + altYearEnd(altSpan().from).slice(0,4) : l}</option>`).join("")}</select><button class="btn" data-altcopy="tab"${nW ? "" : " disabled"} title="Tabelle mit den Spalten Wochentag, Datum, Status, Beginn kopieren (für Mail, Word oder Excel)">Als Tabelle kopieren</button></span></div>`
     + (nW ? `<div class="alsum">${L.days.length} Tage · ${nW} Startfenster${nH ? ` · davon ${nH} nur mit Hinweis` : ""}</div><div class="alrows">${rows}</div>` : `<div class="alsum">Im gewählten Zeitraum keine passende Lage.</div>`) + `</section>`;
 }
-function altCopyText(){
-  if (!ALTC || !PREV) return "";
-  const dr = PREV.list.find(e => e.__draft); if (!dr) return "";
-  const dl = d => WDF[wdOf(d)] + ", " + (+d.slice(8,10)) + ". " + MONTHS[+d.slice(5,7)-1] + " " + d.slice(0,4);
+const ALT_DOT = {ok:"#2e7d4f", wn:"#e0a100"};
+function altCopyData(){
+  if (!ALTC || !PREV) return null;
+  const dr = PREV.list.find(e => e.__draft); if (!dr) return null;
+  const dl = d => WD[wdOf(d)] + "., " + (+d.slice(8,10)) + ". " + MONTHS[+d.slice(5,7)-1] + " " + d.slice(0,4);
   const w1 = v => v.a === v.b ? "um " + m2t(v.a) + " Uhr" : "zwischen " + m2t(v.a) + " und " + m2t(v.b) + " Uhr";
-  return "Mögliche Termine für „" + evName(dr) + "“ (Dauer " + durTxt(dr.dur) + "):\n" + ALTC.days.map(x => "– " + dl(x.d) + ": Beginn " + x.ws.map(w1).join(" oder ")).join("\n");
+  const head = "Mögliche Termine für „" + evName(dr) + "“ (Dauer " + durTxt(dr.dur) + "):";
+  const text = head + "\n" + ALTC.days.map(x => "– " + dl(x.d) + ": Beginn " + x.ws.map(w1).join(" oder ")).join("\n");
+  const dot = v => `<span style="color:${v.w ? ALT_DOT.wn : ALT_DOT.ok}">&#9679;</span>&nbsp;`;
+  const html = `<div style="${MAIL_CSS.body}"><p style="${MAIL_CSS.p}">${esc(head)}</p><p style="${MAIL_CSS.p}">` + ALTC.days.map(x => `<b>${esc(dl(x.d))}</b>: Beginn ` + x.ws.map(v => dot(v) + esc(w1(v))).join(" oder ")).join("<br>") + `</p></div>`;
+  return {text, html};
+}
+function altCopyText(){ const c = altCopyData(); return c ? c.text : ""; }
+/* v110: Tabelle (HTML-Tabelle + tabulatorgetrennter Text) – je Zeitfenster eine Zeile */
+function altCopyTable(){
+  if (!ALTC || !PREV) return null;
+  const dr = PREV.list.find(e => e.__draft); if (!dr) return null;
+  const dt = d => (+d.slice(8,10)) + ". " + MONTHS[+d.slice(5,7)-1] + " " + d.slice(0,4);
+  const tm = v => v.a === v.b ? m2t(v.a) + " Uhr" : m2t(v.a) + "–" + m2t(v.b) + " Uhr";
+  const rows = ALTC.days.flatMap(x => x.ws.map(v => ({wd:WD[wdOf(x.d)] + ".", d:dt(x.d), st:v.w ? "mit Hinweis" : "frei", w:v.w, t:tm(v)})));
+  const head = "Mögliche Termine für „" + evName(dr) + "“ (Dauer " + durTxt(dr.dur) + ")", H = ["Wochentag","Datum","Status","Beginn"];
+  const text = head + "\n" + H.join("\t") + "\n" + rows.map(r => [r.wd, r.d, r.st, r.t].join("\t")).join("\n");
+  const td = "padding:3px 14px 3px 0;border-bottom:1px solid #e3dce6;vertical-align:top;white-space:nowrap";
+  const html = `<div style="${MAIL_CSS.body}"><p style="${MAIL_CSS.p}">${esc(head)}:</p><table style="${MAIL_CSS.table}"><thead><tr>${H.map(h => `<th style="${MAIL_CSS.th}">${h}</th>`).join("")}</tr></thead><tbody>`
+    + rows.map(r => `<tr><td style="${td}">${esc(r.wd)}</td><td style="${td};font-weight:bold">${esc(r.d)}</td><td style="${td}"><span style="color:${r.w ? ALT_DOT.wn : ALT_DOT.ok}">&#9679;</span>&nbsp;${esc(r.st)}</td><td style="${td}">${esc(r.t)}</td></tr>`).join("") + `</tbody></table></div>`;
+  return {text, html};
 }
 function viewWoche(o){
   o = o || {}; const MOB = !!o.mob;
@@ -598,7 +626,7 @@ function viewWoche(o){
       const cOk = cov(ok), cWn = cov(wn), segs = [];
       for (const [set, cls] of [[cOk, "ok"], [new Set([...cWn].filter(t => !cOk.has(t))), "wn"]]){ const ts = [...set].sort((a,b) => a-b); let a = null, b = null;
         ts.forEach(t => { if (a != null && t === b + 15){ b = t; } else { if (a != null) segs.push([a, b + 15, cls]); a = b = t; } }); if (a != null) segs.push([a, b + 15, cls]); }
-      const tip = esc("Mögliche Lagen für „" + evName(ALTD) + "“ am " + fmt(d) + " (" + dur + " Min): " + (ok.length ? "Beginn ohne Konflikt " + altRanges(ok) : "kein Beginn ohne Konflikt") + (wn.length ? " · nur mit Hinweis: " + altRanges(wn) : ""));
+      const tip = esc("Mögliche Lagen für „" + evName(ALTD) + "“ am " + fmt(d) + " (" + dur + " Min): " + (ok.length ? "Beginn ohne Konflikt " + altRanges(ok) : "kein Beginn ohne Konflikt") + (wn.length ? " · nur mit Hinweis: " + [...new Set(wn.map(x => x.r))].map(r => altRanges(wn.filter(x => x.r === r)) + " (" + r + ")").join(", ") : ""));
       const ars = ALTD.room === "Gesamtes EG" ? EG.slice() : (ALTD.room ? ALTD.room.split(" + ").filter(r => LANES.includes(r)) : []); if (!ars.length) ars.push("Raum offen");
       segs.forEach(([a, b, cls]) => { const al = Math.max(0,(a-DAY0)/DAYSPAN*100), aw = (Math.min(b,DAY0+DAYSPAN)-Math.max(a,DAY0))/DAYSPAN*100; ars.forEach(r => lanes[r].unshift(`<div class="alt ${cls}" style="left:${al}%;width:${aw}%" title="${tip}"></div>`)); });
     }
@@ -1376,13 +1404,29 @@ function openDrawer(kind, id, preset, back){ UI.altFrom = null;
   if (kind === "ref") dr.innerHTML = refForm(id ? S.referents[id] : {id:null});
   if (kind === "ans") dr.innerHTML = ansForm(id);
   if (kind === "pans") dr.innerHTML = pansForm(id);
-  applySecs(dr, kind); hintsToHelp(dr); syncFurn(dr); snapForm();
+  applySecs(dr, kind); hintsToHelp(dr); syncFurn(dr); endSync(); snapForm();
   const first = dr.querySelector("input,select,textarea"); if (first) first.focus({preventScroll:true});
   refreshLive(); if (kind === "ev" && preset && preset.__dup) weekPreview(true);
 }
 /* Ungespeicherte Änderungen im Dialog markieren (Felder, Bereiche, Zähler im Fuß) */
 const fval = el => el.type === "checkbox" || el.type === "radio" ? (el.checked ? "1" : "0") : el.multiple ? [...el.selectedOptions].map(o => o.value).join("|") : el.value;
-function snapForm(){ const f = $("#drawer #f"); if (!f) return; f.querySelectorAll("input,select,textarea").forEach(el => { if (!el.classList.contains("dhm")) el.dataset.orig = fval(el); }); markChanges(); }
+function snapForm(){ const f = $("#drawer #f"); if (!f) return; f.querySelectorAll("input,select,textarea").forEach(el => { if (!el.classList.contains("dhm") && !el.classList.contains("endt")) el.dataset.orig = fval(el); }); markChanges(); }
+/* v110: Feld „Ende“ = Beginn + Dauer (nur Anzeige/Eingabe, gespeichert wird die Dauer) */
+function endSync(f){ f = f || $("#drawer #f"); const en = f && f.querySelector(".endt"); if (!en || document.activeElement === en) return;
+  const st = f.elements.start, du = f.elements.dur, ad = f.elements.allDay && f.elements.allDay.checked;
+  const sv = st && st.value ? t2m(st.value) : null, dv = du && du.value !== "" ? +du.value : null;
+  en.value = !ad && sv != null && dv != null && sv + dv < 24*60 ? m2t(sv + dv) : ""; en.classList.remove("bad");
+  en.disabled = !!ad; const l = en.closest("label"); if (l && f.elements.allDay) l.classList.toggle("off", !!ad); }
+/* Eingabe im Feld „Ende“: Dauer = Ende − Beginn; Rückgabe Text = nicht übernehmbar. Während der Eingabe (final=false) still,
+   geprüft und gemeldet wird erst beim Verlassen des Feldes (sonst bricht z. B. die erste Ziffer „1“ = 01:00 die Eingabe ab) */
+function endApply(f, en, final){
+  const st = f.elements.start, du = f.elements.dur; if (!du) return true;
+  if (!en.value){ if (final) endSync(f); return true; }
+  if (!st || !st.value) return "Bitte zuerst den Beginn eintragen";
+  const d = t2m(en.value) - t2m(st.value);
+  if (d <= 0) return "Das Ende muss nach dem Beginn liegen";
+  if (+du.value !== d){ du.value = d; du.dispatchEvent(new Event("input", {bubbles:true})); }
+  return true; }
 function markChanges(){
   const dr = $("#drawer"), f = dr && dr.querySelector("#f"); if (!f) return 0;
   let n = 0; f.querySelectorAll(".chg").forEach(x => x.classList.remove("chg"));
@@ -1451,6 +1495,12 @@ document.addEventListener("mouseover", ev => { const hb = ev.target.closest && e
 document.addEventListener("mouseover", ev => { const q = ev.target.closest(".qh"); if (q) return showTip(q); if (ev.target.closest("#qtip")) return clearTimeout(QT); hideTip(); });
 document.addEventListener("focusin", ev => { const q = ev.target.closest(".qh"); if (q) showTip(q); });
 document.addEventListener("focusout", ev => { if (ev.target.closest(".qh")) hideTip(); });
+/* Feld „Ende“: Dauer beim Betreten merken; beim Verlassen prüfen, bei ungültiger Eingabe Meldung und alte Dauer zurück */
+document.addEventListener("focusin", ev => { if (ev.target.classList && ev.target.classList.contains("endt")){ const f0 = ev.target.closest("#f"); ev.target.dataset.d0 = f0 && f0.elements.dur ? f0.elements.dur.value : ""; } });
+document.addEventListener("focusout", ev => { const en = ev.target; if (!en.classList || !en.classList.contains("endt")) return; const f0 = en.closest("#f"); if (!f0) return;
+  const r = endApply(f0, en, true);
+  if (r !== true){ toast(r); const du = f0.elements.dur; if (du && en.dataset.d0 !== undefined && du.value !== en.dataset.d0){ du.value = en.dataset.d0; du.dispatchEvent(new Event("input", {bubbles:true})); } }
+  setTimeout(() => endSync(f0), 0); });
 document.addEventListener("click", ev => { const q = ev.target.closest(".qh"); if (q){ ev.preventDefault(); showTip(q); } }, true);
 document.addEventListener("keydown", ev => { if (ev.key === "Escape"){ const tip = $("#qtip"); if (tip) tip.hidden = true; } });
 document.addEventListener("toggle", ev => {
@@ -1496,6 +1546,7 @@ function evForm(e){
    <label>Datum<input type="date" name="date" value="${esc(e.date||"")}" required></label>
    <label>Start${e.__dup ? ' <span class="req keep">neu eintragen</span>' : ""}<input type="time" name="start" step="900" value="${esc(e.start||"")}"${e.__dup ? " required" : ""}></label>
    <label>Dauer${durPair(`name="dur" step="15"`, e.dur||"", "Dauer")}</label>
+   <label>Ende <span class="hint">Ende der Veranstaltung (ohne Nachlauf Gäste, inkl. Abschluss). Eingabe berechnet die Dauer. Wird danach der Beginn oder die Dauer geändert, verschiebt sich das Ende.</span><input type="time" class="endt" step="300" aria-label="Ende"></label>
    <label class="cb"><input type="checkbox" name="allDay" ${e.allDay?"checked":""}> ganztägig</label>
   </div></details>
   <details class="sec full s-d" open><summary>Raum und Ablauf</summary><div class="form">
@@ -1539,6 +1590,7 @@ function serForm(s){
    <div class="full lbl">Mögliche Wochentage <span class="hint">(gilt für Reihe und Referent; leer = alle)</span>${wdBoxes("weekdays", s.weekdays)}</div>
    <label>Übliche Startzeit<input type="time" name="start" step="900" value="${esc(s.start||"")}"></label>
    <label>Dauer${durPair(`name="dur" step="15"`, s.dur||"", "Dauer")}</label>
+   <label>Übliches Ende <span class="hint">Ende der Veranstaltung (ohne Nachlauf Gäste, inkl. Abschluss). Eingabe berechnet die Dauer. Wird danach der Startzeit oder die Dauer geändert, verschiebt sich das Ende.</span><input type="time" class="endt" step="300" aria-label="Übliches Ende"></label>
    <label>Frühester Beginn <span class="hint">(leer = offen)</span><input type="time" name="earliest" step="900" value="${esc(s.earliest||"")}"></label>
    <label>Spätestes Ende <span class="hint">(leer = offen)</span><input type="time" name="latestEnd" step="900" value="${esc(s.latestEnd||"")}"></label>
    <label class="cb"><input type="checkbox" name="noFerien" ${s.noFerien?"checked":""}> nicht in den Berliner Schulferien</label>
@@ -1930,7 +1982,7 @@ document.addEventListener("click", async ev => {
     if (sd){ sd.value = d; sd.dispatchEvent(new Event("input", {bubbles:true})); }
     if (ss){ ss.value = st; ss.dispatchEvent(new Event("input", {bubbles:true})); }
     altGo(d); toast("Übernommen: " + WD[wdOf(d)] + " " + fmtY(d) + ", " + st + " – noch nicht gespeichert"); return; }
-  if (ds.altcopy){ const ok = await copyText(altCopyText()); toast(ok ? "Mögliche Zeiten kopiert" : "Kopieren nicht möglich"); return; }
+  if (ds.altcopy){ const tab = ds.altcopy === "tab", c = tab ? altCopyTable() : altCopyData(); const ok = c ? await copyRich(c.html, c.text) : false; toast(ok ? (tab ? "Mögliche Zeiten als Tabelle kopiert" : "Mögliche Zeiten mit Formatierung kopiert") : "Kopieren nicht möglich"); return; }
   if (ds.bk) return bkAction(ds.bk);
   if (ds.ev === "__draft") return;
   /* Prüfbericht: Termin rechts öffnen, links den betroffenen Tag zeigen (wie Wochenansicht, nur dieser Tag) */
@@ -1953,6 +2005,7 @@ document.addEventListener("click", async ev => {
   if (ds.delabs){ await del("absences", ds.delabs); delete S.absences[ds.delabs]; return render(); }
 });
 document.addEventListener("input", ev => {
+  if (ev.target.classList && ev.target.classList.contains("endt")){ const f0 = ev.target.closest("#f"); if (f0) endApply(f0, ev.target, false); return; }
   const dp = ev.target.closest(".dpair");
   if (dp){ const mi = dp.querySelector('input[type="number"]'), hm = dp.querySelector(".dhm");
     if (ev.target === mi){ hm.value = fmtHM(mi.value); hm.classList.remove("bad"); }
@@ -1964,12 +2017,14 @@ document.addEventListener("input", ev => {
   if (ev.target.closest("#drawer #f")){ const nm = ev.target.name || (dp && dp.querySelector('input[type="number"]').name);
     if (UI.view !== "woche" && PREV_FIELDS.includes(nm)) weekPreview(true);
     refreshLive(); markChanges(); }
+  if (ev.target.closest("#drawer #f") && ["start","dur","allDay"].includes(ev.target.name || (dp && dp.querySelector('input[type="number"]').name))) endSync(ev.target.closest("#f"));
   if (ev.target.id === "fQ"){ UI.q = ev.target.value; clearTimeout(UI.qt); UI.qt = setTimeout(() => { render(); requestAnimationFrame(() => { const q = $("#fQ"); if (q){ q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }); }, 250); }
 });
 document.addEventListener("change", async ev => {
   if (ev.target.id === "bkFile"){ const r = await bkReadFile(ev.target); if (r){ UI.imp = {b:r.b, name:r.name, diff:bkDiff(r.b)}; render(); } return; }
   if (ev.target.id === "bkLoad"){ const r = await bkReadFile(ev.target); if (!r) return; if (OFF.dirty && !confirm(OFF.dirty + " ungespeicherte Änderung(en) gehen verloren. Trotzdem laden?")) return;
     applyBackupLocal(r.b); OFF.src = r.name + " (Stand " + bkWhen(r.b.created) + ")"; OFF.dirty = 0; offStore(); offBanner(); UI.drawer = null; render(); toast("Backup geladen"); return; }
+  if (ev.target.classList && ev.target.classList.contains("endt")) return; /* Prüfung beim Verlassen des Feldes (focusout) */
   if (ev.target.classList && ev.target.classList.contains("dhm")){ const dp = ev.target.closest(".dpair"), mi = dp.querySelector('input[type="number"]'), v = parseHM(ev.target.value);
     if (v === null){ toast("Bitte als Stunden:Minuten eingeben, z. B. 1:30"); return; }
     ev.target.value = fmtHM(v); mi.dispatchEvent(new Event("change", {bubbles:true})); return; }
@@ -1979,7 +2034,7 @@ document.addEventListener("change", async ev => {
     if (await put("series", s.id, o)){ S.series[s.id] = o; recompute(); toast("Gespeichert: "+s.name); render(); } return; }
   if (ev.target.closest("#drawer #f") && ["room","roomOff","backupRoom","allDay"].includes(ev.target.name)) syncFurn($("#drawer"));
   const id = ev.target.id;
-  if (id === "fSer"){ applySeries(ev.target.value); syncFurn($("#drawer")); refreshLive(); }
+  if (id === "fSer"){ applySeries(ev.target.value); syncFurn($("#drawer")); endSync(); refreshLive(); }
   if (ev.target.closest && ev.target.closest("#drawer #f")) markChanges();
   if (id === "fSender"){ UI.sender = ev.target.value; try { localStorage.setItem("shp-sender", UI.sender); } catch(e){} render(); }
   if (id === "fRound"){ UI.round = ev.target.value; render(); }
@@ -2172,6 +2227,9 @@ function mobMonList(){
     const evs = evList().filter(e => e.date === d && e.kind !== "notiz").sort(sortEv), notes = evList().filter(e => e.date === d && e.kind === "notiz"), hol = FEIER[d], sp = sperrOn(d);
     if (!evs.length && !notes.length && !hol && !sp){ run.push(d); continue; }
     flush();
+    /* v110: Feiertag ohne Termine in einer Programmpause wie die übrigen Pausentage (halbe Höhe), Text klein */
+    if (hol && !sp && !evs.length && !notes.length && (S.weeks[weekKey(d)] || "") === "pause"){ const wk1 = weekKey(d), ws1 = wk1 !== lastWk; lastWk = wk1; box(d);
+      h += `<div class="mskip mhol${ws1 ? " wks" : ""}" data-d="${d}" data-e="${d}"${ws1 ? ` data-wk="${mobMon(d)}"` : ""} style="--n:1"><span>${mobDLab(d)} · ${esc(hol)}</span></div>`; continue; }
     const wk = weekKey(d), st = S.weeks[wk] || "belebt", [, w] = isoWeek(d), showKw = wk !== lastWk; lastWk = wk;
     const pre = d === t ? "Heute · " : d === tm ? "Morgen · " : "", fer = ferienOn(d);
     const tags = [hol ? `<span class="lv err">${esc(hol)}</span>` : "", sp ? `<span class="lv err">Sperrtag</span>` : "", fer ? `<span class="lv info">${esc(fer)}</span>` : "", ...notes.map(n => `<span class="lv info" data-ev="${n.id}">✎ ${esc(evName(n))}</span>`)].join("");
