@@ -15,9 +15,9 @@ from zoneinfo import ZoneInfo
 
 # ---------- Einstellungen ----------
 CONTACT = "veranstaltung@survivors-home.de"
-EVENTS_URL = ""        # Platzhalter: öffentlicher Link zur Veranstaltungsseite (folgt)
-IMPRESSUM_URL = ""     # Platzhalter: Link zum Impressum von survivors-home.de (folgt)
-DATENSCHUTZ_URL = ""   # Platzhalter: Link zur Datenschutzerklärung (folgt)
+EVENTS_URL = "https://survivors-home.de/veranstaltungen/"   # Link für Titel veröffentlichter Termine (bis Einzel-Links per Website-Abgleich kommen)
+IMPRESSUM_URL = "https://survivors-home.de/impressum/"
+DATENSCHUTZ_URL = "https://survivors-home.de/datenschutz/"
 FEST = {"zugesagt", "fix", "in WP angelegt", "veröffentlicht"}
 VORGEMERKT = {"Option", "angefragt"}
 THEMES = ["Angehörige","Beruf & Soziales","Bewegung","Ernährung","Film & Foto","Forschung & Wissen","Geist & Seele",

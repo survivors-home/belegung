@@ -17,18 +17,21 @@ html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--f)
 button,input{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 16px;border-bottom:1px solid var(--line)}
-.logo{display:block;width:150px;height:auto;background:#fff;padding:8px 10px;border-radius:4px}
+.logo{display:block;flex:none;width:200px;height:auto;background:#fff;border-radius:4px}
 header h1{margin:0;font-size:1.25rem;font-weight:700;color:var(--ink)}
 header h1 small{display:block;font-size:.8rem;font-weight:400;color:var(--muted)}
 main{max-width:1200px;margin:0 auto;padding:14px 16px 40px}
 .bar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;margin-bottom:10px}
 .nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#navx{display:contents}
 .mv{display:flex;gap:8px;align-items:center;flex-wrap:nowrap}
 .btn{border:1px solid var(--line);background:var(--paper);padding:8px 14px;border-radius:var(--r);cursor:pointer;font-weight:700;font-size:.95rem}
 .btn[disabled]{opacity:.35;cursor:default}
 .seg{display:inline-flex}.seg .btn{border-radius:0}.seg .btn:first-child{border-radius:var(--r) 0 0 var(--r)}.seg .btn:last-child{border-radius:0 var(--r) var(--r) 0;margin-left:-1px}
 .seg .btn[aria-pressed="true"]{background:var(--violet);color:#fff;border-color:var(--violet)}
 .lab{font-weight:700;font-size:1.1rem;min-width:11ch;text-align:center}
+.jump{display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--muted)}
+.jump input{border:1px solid var(--line);background:var(--paper);border-radius:var(--r);padding:6px 8px;font-size:.95rem}
 .stand{font-size:.82rem;color:var(--muted)}
 .intro{margin:0 0 12px;font-size:.9rem;color:var(--muted);max-width:75ch}
 .sw{width:12px;height:12px;border-radius:3px;display:inline-block;flex:none}
@@ -78,7 +81,7 @@ main{max-width:1200px;margin:0 auto;padding:14px 16px 40px}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 footer{font-size:.82rem;color:var(--muted);border-top:1px solid var(--line);padding-top:10px;display:flex;flex-wrap:wrap;gap:6px 18px}
 footer a{color:var(--violet)}
-@media (max-width:640px){ .day{min-height:62px;padding:3px} .tag{display:none} .tl .c span{display:none} header{flex-wrap:nowrap;gap:12px;padding:10px 12px} .logo{width:104px;padding:5px 7px} header h1{font-size:1.05rem} header h1 small{font-size:.72rem} main{padding:10px 12px 30px} .mv{width:100%} .mv .lab{flex:1;font-size:1rem;min-width:0} .btn{padding:8px 12px} }
+@media (max-width:640px){ .day{min-height:62px;padding:3px} .tag{display:none} .tl .c span{display:none} header{flex-wrap:nowrap;gap:12px;padding:10px 12px} .logo{width:132px} header h1{font-size:1.05rem} header h1 small{font-size:.72rem} main{padding:10px 12px 30px} .mv{width:100%} .mv .lab{flex:1;font-size:1rem;min-width:0} .btn{padding:8px 12px} }
 </style>
 </head>
 <body>
@@ -130,20 +133,26 @@ function vWeek(){
     return `<section class="${cls}"><h3>${WD[wdOf(d)]} ${fmtY(d)}${fe ? `<span class="chip">${esc(fe)}</span>` : ""}${inf.map(i => `<span class="chip ${i[0]}">${esc(i[1])}</span>`).join("")}</h3>${past ? `<div class="free">vergangen</div>` : evs.length ? `<div class="axis">${ax.join("")}</div>${rows}${open}${pub}` : `<div class="free">${inf.some(i => i[0]==="quiet") ? "nicht verfügbar" : "frei"}</div>`}</section>`;
   }).join("") + `</div>`;
 }
+function navHtml(){
+  const lo = DATA.from.slice(0,7), hi = DATA.to.slice(0,7), wLo = monOf(DATA.from), wHi = monOf(DATA.to);
+  return UI.view === "monat"
+    ? `<span class="mv"><button class="btn" data-m="-1" aria-label="Voriger Monat" ${UI.month <= lo ? "disabled" : ""}>←</button><span class="lab">${MONTHS[+UI.month.slice(5)-1]} ${UI.month.slice(0,4)}</span><button class="btn" data-m="1" aria-label="Nächster Monat" ${UI.month >= hi ? "disabled" : ""}>→</button></span>`
+    : `<span class="mv"><button class="btn" data-w="-7" aria-label="Vorige Woche" ${UI.week <= wLo ? "disabled" : ""}>←</button><span class="lab">KW ${isoWeek(UI.week)[1]} · ${fmt(UI.week)}–${fmtY(S_(D(UI.week)+6))}</span><button class="btn" data-w="7" aria-label="Nächste Woche" ${UI.week >= wHi ? "disabled" : ""}>→</button></span>`;
+}
+function bodyHtml(){
+  const contact = DATA.contact ? `Anfragen zu freien Terminen: <a href="mailto:${esc(DATA.contact)}">${esc(DATA.contact)}</a>` : "";
+  const foot = [contact, "Angaben ohne Gewähr", DATA.impressum ? `<a href="${esc(DATA.impressum)}" target="_blank" rel="noopener">Impressum</a>` : "", DATA.datenschutz ? `<a href="${esc(DATA.datenschutz)}" target="_blank" rel="noopener">Datenschutz</a>` : ""].filter(Boolean).map(x => `<span>${x}</span>`).join("");
+  return `${UI.view === "monat" ? vMonth() : vWeek()}${legend()}<footer>${foot}</footer>`;
+}
 function render(){
   const app = document.getElementById("app");
   if (!DATA){ app.innerHTML = "<p>Keine Daten vorhanden.</p>"; return; }
-  const lo = DATA.from.slice(0,7), hi = DATA.to.slice(0,7);
-  if (!UI.month) UI.month = lo; if (!UI.week) UI.week = monOf(DATA.from);
-  const wLo = monOf(DATA.from), wHi = monOf(DATA.to);
-  const nav = UI.view === "monat"
-    ? `<span class="mv"><button class="btn" data-m="-1" aria-label="Voriger Monat" ${UI.month <= lo ? "disabled" : ""}>←</button><span class="lab">${MONTHS[+UI.month.slice(5)-1]} ${UI.month.slice(0,4)}</span><button class="btn" data-m="1" aria-label="Nächster Monat" ${UI.month >= hi ? "disabled" : ""}>→</button></span>`
-    : `<span class="mv"><button class="btn" data-w="-7" aria-label="Vorige Woche" ${UI.week <= wLo ? "disabled" : ""}>←</button><span class="lab">KW ${isoWeek(UI.week)[1]} · ${fmt(UI.week)}–${fmtY(S_(D(UI.week)+6))}</span><button class="btn" data-w="7" aria-label="Nächste Woche" ${UI.week >= wHi ? "disabled" : ""}>→</button></span>`;
-  const contact = DATA.contact ? `Anfragen zu freien Terminen: <a href="mailto:${esc(DATA.contact)}">${esc(DATA.contact)}</a>` : "";
-  const foot = [contact, "Angaben ohne Gewähr", DATA.impressum ? `<a href="${esc(DATA.impressum)}" target="_blank" rel="noopener">Impressum</a>` : "", DATA.datenschutz ? `<a href="${esc(DATA.datenschutz)}" target="_blank" rel="noopener">Datenschutz</a>` : ""].filter(Boolean).map(x => `<span>${x}</span>`).join("");
-  app.innerHTML = `<div class="bar"><div class="nav"><span class="seg" role="group" aria-label="Ansicht"><button class="btn" data-v="monat" aria-pressed="${UI.view==="monat"}">Monat</button><button class="btn" data-v="woche" aria-pressed="${UI.view==="woche"}">Woche</button></span>${nav}</div><span class="stand">Stand: ${esc(DATA.upd)} Uhr · wird täglich aktualisiert</span></div>
+  if (!UI.month) UI.month = DATA.from.slice(0,7); if (!UI.week) UI.week = monOf(DATA.from);
+  const jv = UI.jump && monOf(UI.jump) === UI.week ? UI.jump : (UI.week < DATA.from ? DATA.from : UI.week);
+  const jump = UI.view === "woche" ? `<label class="jump">Gehe zu <input type="date" data-jump="1" min="${DATA.from}" max="${DATA.to}" value="${jv}"></label>` : "";
+  app.innerHTML = `<div class="bar"><div class="nav"><span class="seg" role="group" aria-label="Ansicht"><button class="btn" data-v="monat" aria-pressed="${UI.view==="monat"}">Monat</button><button class="btn" data-v="woche" aria-pressed="${UI.view==="woche"}">Woche</button></span><span id="navx">${navHtml()}</span>${jump}</div><span class="stand">Stand: ${esc(DATA.upd)} Uhr</span></div>
   <p class="intro">Belegte Zeiten im Haus, inklusive Vorbereitung und Nachlauf. Freie Zeiten sind verfügbar. Vorgemerkte Termine sind noch nicht endgültig.</p>
-  ${UI.view === "monat" ? vMonth() : vWeek()}${legend()}<footer>${foot}</footer>`;
+  <div id="body">${bodyHtml()}</div>`;
 }
 document.addEventListener("click", ev => {
   const t = ev.target.closest("[data-v],[data-m],[data-w],[data-go]"); if (!t || t.disabled) return; const ds = t.dataset;
@@ -152,6 +161,14 @@ document.addEventListener("click", ev => {
   if (ds.w){ UI.week = S_(D(UI.week)+(+ds.w)); UI.month = S_(D(UI.week)+3).slice(0,7); }
   if (ds.go){ UI.week = monOf(ds.go); UI.view = "woche"; }
   render();
+});
+document.addEventListener("change", ev => {
+  const t = ev.target.closest("[data-jump]"); if (!t) return; const v = t.value;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+  if (v < DATA.from || v > DATA.to) return;                 /* unvollständige Eingabe (z. B. Jahr halb getippt) ignorieren */
+  UI.jump = v; UI.week = monOf(v); UI.month = v.slice(0,7);
+  document.getElementById("navx").innerHTML = navHtml();    /* Datumsfeld bleibt stehen, Fokus geht nicht verloren */
+  document.getElementById("body").innerHTML = bodyHtml();
 });
 render();
 </script>
