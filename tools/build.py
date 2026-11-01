@@ -3,7 +3,7 @@
 
 Erzeugt index.html aus einem Datenbank-Export des internen Programmplaners.
 Aufruf:  python3 tools/build.py <export-ordner> [ausgabe.html]
-Der Export-Ordner enthält events/*.json, series/*.json, absences/*.json, meta/weeks.json
+Der Export-Ordner enthält events/*.json, series/*.json, absences/*.json, meta/weeks.json, meta/settings.json (optional)
 (so, wie ihn das Datenbank-Werkzeug von Claude speichert).
 
 Veröffentlicht werden NUR: Datum, belegte Zeit des Hauses (inkl. Auf-/Abbau, Check-in, Nachlauf),
@@ -23,13 +23,30 @@ FEST = {"zugesagt", "fix", "in WP angelegt", "veröffentlicht"}
 VORGEMERKT = {"Option", "angefragt"}
 THEMES = ["Angehörige","Beruf & Soziales","Bewegung","Ernährung","Film & Foto","Forschung & Wissen","Geist & Seele",
           "Kreativität","Kunst & Kultur","Leben & Erfahrung","Musik","Themenoffen","Unterhaltung","Sonstige"]
-FEIER = {"2026-12-25":"1. Weihnachtstag","2026-12-26":"2. Weihnachtstag",
-  "2027-01-01":"Neujahr","2027-03-08":"Frauentag","2027-03-26":"Karfreitag","2027-03-29":"Ostermontag","2027-05-01":"1. Mai",
-  "2027-05-06":"Christi Himmelfahrt","2027-05-17":"Pfingstmontag","2027-10-03":"Tag der Deutschen Einheit","2027-12-25":"1. Weihnachtstag",
-  "2027-12-26":"2. Weihnachtstag","2028-01-01":"Neujahr"}
-FERIEN = [["2026-12-23","2027-01-02","Weihnachtsferien"],["2027-02-01","2027-02-06","Winterferien"],["2027-03-22","2027-04-02","Osterferien"],
+# Feiertage und Schulferien: aus den Planer-Einstellungen (meta/settings, ab Planer v117); ohne Eintrag gelten
+# die gesetzlichen Feiertage Berlin (je Jahr berechnet) und diese Standard-Ferienliste – gleiche Regeln wie im Planer.
+DEF_FERIEN = [["2026-10-19","2026-10-31","Herbstferien"],["2026-12-23","2027-01-02","Weihnachtsferien"],["2027-02-01","2027-02-06","Winterferien"],["2027-03-22","2027-04-02","Osterferien"],
   ["2027-05-07","2027-05-07","unterrichtsfrei"],["2027-05-18","2027-05-19","unterrichtsfrei"],["2027-07-01","2027-08-14","Sommerferien"],
   ["2027-10-11","2027-10-23","Herbstferien"],["2027-12-22","2027-12-31","Weihnachtsferien"]]
+
+def easter(y):
+    a, b, c = y % 19, y // 100, y % 100; d, e = b // 4, b % 4; f = (b + 8) // 25; g = (b - f + 1) // 3
+    h = (19*a + b - d - g + 15) % 30; i, k = c // 4, c % 4; l = (32 + 2*e + 2*i - h - k) % 7; m = (a + 11*h + 22*l) // 451; n = h + l - 7*m + 114
+    return datetime.date(y, n // 31, n % 31 + 1)
+
+def feier_berlin(y):
+    o = easter(y); dd = lambda n: (o + datetime.timedelta(days=n)).isoformat()
+    return {f"{y}-01-01": "Neujahr", f"{y}-03-08": "Frauentag", dd(-2): "Karfreitag", dd(1): "Ostermontag", f"{y}-05-01": "1. Mai",
+            dd(39): "Christi Himmelfahrt", dd(50): "Pfingstmontag", f"{y}-10-03": "Tag der Deutschen Einheit",
+            f"{y}-12-25": "1. Weihnachtstag", f"{y}-12-26": "2. Weihnachtstag"}
+
+def load_meta(folder, name):
+    p = os.path.join(folder, "meta", name + ".json")
+    if not os.path.exists(p):
+        return {}
+    with open(p, encoding="utf-8") as fh:
+        w = json.load(fh)
+    return (w.get("data", w) if isinstance(w, dict) else {}) or {}
 
 def load(folder, col):
     out = {}
@@ -69,6 +86,15 @@ def build(folder, out_path):
         with open(wp, encoding="utf-8") as fh:
             w = json.load(fh)
         weeks_doc = (w.get("data", w) or {}).get("status", {}) or {}
+
+    settings = load_meta(folder, "settings")
+    ferien_all = [f for f in settings.get("ferien") if isinstance(f, list) and len(f) >= 2 and f[0] and f[1]] if isinstance(settings.get("ferien"), list) else DEF_FERIEN
+    feier_all = {}
+    for y in range(int(today[:4]), int(today[:4]) + 3):
+        feier_all.update(feier_berlin(y))
+    for f in settings.get("feierExtra") or []:
+        if isinstance(f, list) and f and f[0]:
+            feier_all[f[0]] = f[1] if len(f) > 1 and f[1] else "Feiertag"
 
     ev = []
     for e in events.values():
@@ -128,8 +154,8 @@ def build(folder, out_path):
         "closed": sorted(c for c in closed if today <= c <= end),
         "pause": sorted(k for k, v in weeks_doc.items() if v == "pause"),
         "quiet": sorted(k for k, v in weeks_doc.items() if v == "ruhig"),   # ruhige Wochen: extern „nicht verfügbar“
-        "feier": {k: v for k, v in FEIER.items() if today <= k <= end},
-        "ferien": [f for f in FERIEN if f[1] >= today and f[0] <= end],
+        "feier": {k: v for k, v in sorted(feier_all.items()) if today <= k <= end},
+        "ferien": [[f[0], f[1], f[2] if len(f) > 2 else ""] for f in sorted(ferien_all) if f[1] >= today and f[0] <= end],
         "themes": THEMES, "contact": CONTACT, "eventsUrl": EVENTS_URL, "impressum": IMPRESSUM_URL, "datenschutz": DATENSCHUTZ_URL,
     }
     here = os.path.dirname(os.path.abspath(__file__))
