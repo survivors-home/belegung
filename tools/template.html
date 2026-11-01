@@ -128,7 +128,7 @@ function vWeek(){
     const evs = byD[d] || [], inf = info(d), fe = ferien(d), past = d < DATA.from;
     const rows = evs.filter(x => x.a != null).map(x => `<div class="tl"><i class="o" style="--c:${col(x)};${pos(x.a, x.b)}" title="${esc(title(x))}"></i><i class="c ${x.f ? "f" : "v"}${dark(x) ? " dk" : ""}" style="--c:${col(x)};${pos(x.s, x.e)}" title="${esc(title(x))}">${x.e - x.s >= 75 ? `<span>${m2t(x.a)}–${m2t(x.b)}</span>` : ""}</i></div>`).join("");
     const open = evs.filter(x => x.a == null).map(x => `<div class="open">${esc(thName(x))} · Uhrzeit noch offen · ${x.f ? "fest" : "vorgemerkt"}</div>`).join("");
-    const pub = evs.filter(x => x.n).map(x => `<div class="pub">${x.g ? "ganztägig" : x.z ? "" : m2t(x.s)+" Uhr: "}${DATA.eventsUrl ? `<a href="${esc(DATA.eventsUrl)}" target="_blank" rel="noopener">${esc(x.n)}</a>` : `<b>${esc(x.n)}</b>`}</div>`).join("");
+    const pub = evs.filter(x => x.n).map(x => `<div class="pub">${x.g ? "ganztägig" : x.z ? "" : m2t(x.s)+" Uhr: "}${x.u || DATA.eventsUrl ? `<a href="${esc(x.u || DATA.eventsUrl)}" target="_blank" rel="noopener">${esc(x.n)}</a>` : `<b>${esc(x.n)}</b>`}</div>`).join("");
     const cls = `wd${inf.some(i => i[0]==="hol") ? " hol" : inf.some(i => i[0]==="pause") ? " pause" : inf.some(i => i[0]==="quiet") ? " quiet" : ""}`;
     return `<section class="${cls}"><h3>${WD[wdOf(d)]} ${fmtY(d)}${fe ? `<span class="chip">${esc(fe)}</span>` : ""}${inf.map(i => `<span class="chip ${i[0]}">${esc(i[1])}</span>`).join("")}</h3>${past ? `<div class="free">vergangen</div>` : evs.length ? `<div class="axis">${ax.join("")}</div>${rows}${open}${pub}` : `<div class="free">${inf.some(i => i[0]==="quiet") ? "nicht verfügbar" : "frei"}</div>`}</section>`;
   }).join("") + `</div>`;

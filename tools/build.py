@@ -10,12 +10,13 @@ Veröffentlicht werden NUR: Datum, belegte Zeit des Hauses (inkl. Auf-/Abbau, Ch
 Themenbereich, Zustand (vorgemerkt/fest), Titel nur bei Status „veröffentlicht“.
 Keine Räume, Referenten, Notizen, Ideen, Absagen, Anlässe von Sperrtagen.
 """
-import json, os, sys, glob, datetime, html
+import json, os, sys, glob, datetime, html, re
 from zoneinfo import ZoneInfo
 
 # ---------- Einstellungen ----------
 CONTACT = "veranstaltung@survivors-home.de"
-EVENTS_URL = "https://survivors-home.de/veranstaltungen/"   # Link für Titel veröffentlichter Termine (bis Einzel-Links per Website-Abgleich kommen)
+EVENTS_URL = "https://survivors-home.de/veranstaltungen/"   # Link für Titel veröffentlichter Termine ohne eigene Website-Seite
+WEB_RE = re.compile(r"^https://(www\.)?survivors-home\.de/")   # Einzel-Link (Feld web.url, Website-Abgleich ab v112) nur auf die eigene Website
 IMPRESSUM_URL = "https://survivors-home.de/impressum/"
 DATENSCHUTZ_URL = "https://survivors-home.de/datenschutz/"
 FEST = {"zugesagt", "fix", "in WP angelegt", "veröffentlicht"}
@@ -88,6 +89,9 @@ def build(folder, out_path):
             x["t"] = THEMES.index(th)
         if status == "veröffentlicht" and kind != "vermietung":
             x["n"] = e.get("title") or s.get("name") or ""
+            u = ((e.get("web") or {}).get("url") or "").strip()
+            if WEB_RE.match(u):
+                x["u"] = u
         if e.get("allDay"):
             x.update({"s": 540, "e": 1260, "a": 540, "b": 1260, "g": 1})
         elif e.get("start"):
