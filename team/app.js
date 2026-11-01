@@ -16,17 +16,40 @@ const FORMS = ["Beratung","Gemeinsam aktiv","Mitmach-Kurs","Impuls & Austausch",
 const WD = ["So","Mo","Di","Mi","Do","Fr","Sa"];
 const WDL = ["sonntags","montags","dienstags","mittwochs","donnerstags","freitags","samstags"];
 const MONTHS = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
-const FERIEN = [["2026-10-19","2026-10-31","Herbstferien"],["2026-12-23","2027-01-02","Weihnachtsferien"],["2027-02-01","2027-02-06","Winterferien"],["2027-03-22","2027-04-02","Osterferien"],
+/* Schulferien Berlin: Standard, in den Einstellungen (Kalender) änderbar */
+const DEF_FERIEN = [["2026-10-19","2026-10-31","Herbstferien"],["2026-12-23","2027-01-02","Weihnachtsferien"],["2027-02-01","2027-02-06","Winterferien"],["2027-03-22","2027-04-02","Osterferien"],
   ["2027-05-07","2027-05-07","unterrichtsfrei"],["2027-05-18","2027-05-19","unterrichtsfrei"],["2027-07-01","2027-08-14","Sommerferien"],
   ["2027-10-11","2027-10-23","Herbstferien"],["2027-12-22","2027-12-31","Weihnachtsferien"]];
-const FEIER = {"2026-10-03":"Tag der Deutschen Einheit","2026-12-25":"1. Weihnachtstag","2026-12-26":"2. Weihnachtstag","2027-01-01":"Neujahr","2027-03-08":"Frauentag","2027-03-26":"Karfreitag","2027-03-29":"Ostermontag","2027-05-01":"1. Mai",
-  "2027-05-06":"Christi Himmelfahrt","2027-05-17":"Pfingstmontag","2027-10-03":"Tag der Deutschen Einheit","2027-12-25":"1. Weihnachtstag","2027-12-26":"2. Weihnachtstag","2028-01-01":"Neujahr"};
+let FERIEN = DEF_FERIEN, FEIER = {}; /* FEIER: Feiertage Berlin automatisch je Jahr + Zusätze aus den Einstellungen (applySettings) */
 const DAY0 = 8*60, DAYSPAN = 13*60; // Zeitachse 8–21 Uhr
-const OPEN_FROM = "10:00", OPEN_TO = "21:00"; // Kernöffnungszeit (Sebastian): 10–21 Uhr für die automatische Terminvergabe (Ende inkl. Nachlauf)
-const OPEN_TXT = "Außerhalb der Kernöffnungszeit ("+OPEN_FROM+"–"+OPEN_TO+" Uhr inkl. Nachlauf)";
+let OPEN_FROM = "10:00", OPEN_TO = "21:00"; // Kernöffnungszeit (Sebastian): 10–21 Uhr für die automatische Terminvergabe (Ende inkl. Nachlauf)
+let OPEN_TXT = "Außerhalb der Kernöffnungszeit ("+OPEN_FROM+"–"+OPEN_TO+" Uhr inkl. Nachlauf)";
+/* Einstellungen (meta/settings, Reiter Einstellungen): ohne Wert gilt der Standard. Werte werden in applySettings() in die Variablen übernommen. */
+let CI_MIN = 30, HYB_SETUP = 300, ON_DAYS = 56, WARN_DAYS = 70;
+const SET_DEF = {ci:30, openFrom:"10:00", openTo:"21:00", umbau:120, hybSetup:5, onlineWeeks:8, warnWeeks:10, nachfass:10, wsMaxH:36, altStep:30,
+  invLoc:"SURVIVORS HOME Foundation, Hildegardstr. 31, 10715 Berlin", sebMail:"sebastian.roeder@survivors-home.de", noteMail:"veranstaltung@survivors-home.de",
+  belegUrl:"https://belegung.survivors-home.de/", teamUrl:"https://belegung.survivors-home.de/team/"};
+const setv = k => { const v = (S.settings || {})[k]; return v === undefined || v === null || v === "" ? SET_DEF[k] : v; };
+/* Ostersonntag (gregorianisch) und gesetzliche Feiertage Berlin */
+function easter(y){ const a = y%19, b = Math.floor(y/100), c = y%100, d = Math.floor(b/4), e = b%4, f = Math.floor((b+8)/25), g = Math.floor((b-f+1)/3), h = (19*a+b-d-g+15)%30, i = Math.floor(c/4), k = c%4, l = (32+2*e+2*i-h-k)%7, m = Math.floor((a+11*h+22*l)/451), n = h+l-7*m+114;
+  return y + "-" + pad(Math.floor(n/31)) + "-" + pad(n%31 + 1); }
+function feierBerlin(y){ const o = D(easter(y)), r = {};
+  [[y+"-01-01","Neujahr"],[y+"-03-08","Frauentag"],[S_(o-2),"Karfreitag"],[S_(o+1),"Ostermontag"],[y+"-05-01","1. Mai"],[S_(o+39),"Christi Himmelfahrt"],[S_(o+50),"Pfingstmontag"],[y+"-10-03","Tag der Deutschen Einheit"],[y+"-12-25","1. Weihnachtstag"],[y+"-12-26","2. Weihnachtstag"]].forEach(([d, n]) => r[d] = n);
+  return r; }
+const FEIER_YEARS = () => [YEAR-1, YEAR, YEAR+1];
+function applySettings(){
+  const st = S.settings || {};
+  CI_MIN = +setv("ci"); OPEN_FROM = setv("openFrom"); OPEN_TO = setv("openTo"); OPEN_TXT = "Außerhalb der Kernöffnungszeit ("+OPEN_FROM+"–"+OPEN_TO+" Uhr inkl. Nachlauf)";
+  UMBAU_MIN = +setv("umbau"); HYB_SETUP = +setv("hybSetup") * 60; ON_DAYS = +setv("onlineWeeks") * 7; WARN_DAYS = +setv("warnWeeks") * 7;
+  NACHFASS_TAGE = +setv("nachfass"); WS_MAX_H = +setv("wsMaxH"); ALT_STEP = +setv("altStep");
+  INV_LOC = setv("invLoc"); SEB_MAIL = setv("sebMail"); NOTE_MAIL = setv("noteMail"); BELEG_URL = setv("belegUrl"); TEAM_URL = setv("teamUrl");
+  FERIEN = Array.isArray(st.ferien) ? st.ferien.filter(f => Array.isArray(f) && f[0] && f[1]) : DEF_FERIEN;
+  FEIER = {}; FEIER_YEARS().forEach(y => Object.assign(FEIER, feierBerlin(y)));
+  (Array.isArray(st.feierExtra) ? st.feierExtra : []).forEach(f => { if (Array.isArray(f) && f[0]) FEIER[f[0]] = f[1] || "Feiertag"; });
+}
 
 /* ---------- Zustand ---------- */
-const S = {series:{}, referents:{}, events:{}, absences:{}, weeks:{}, accepted:{}, rounds:{}, msgs:{}, loaded:false};
+const S = {series:{}, referents:{}, events:{}, absences:{}, weeks:{}, accepted:{}, rounds:{}, msgs:{}, settings:{}, loaded:false};
 const UI = {lPast:false, serFilter:"alle", view:"jahr", week:null, month:"alle", status:"alle", onlyIssues:false, q:"", drawer:null};
 try { UI.sender = localStorage.getItem("shp-sender") || ""; } catch(e){ UI.sender = ""; }
 let db = null, downloads = null, ISS = new Map();
@@ -47,14 +70,14 @@ const t2m = t => t ? (+t.slice(0,2))*60 + (+t.slice(3,5)) : null;
 const m2t = m => pad(Math.floor(m/60)) + ":" + pad(Math.round(m%60));
 const fmt = s => s ? s.slice(8,10)+"."+s.slice(5,7)+"." : "";
 const fmtY = s => s ? fmt(s)+s.slice(0,4) : "";
-/* Status-Stufen und Fristen: 10 Wochen vorher mind. „fix“, 8 Wochen vorher „veröffentlicht“ */
+/* Status-Stufen und Fristen: Vorwarnung (Standard 10 Wochen vorher) mind. „fix“, Online-Frist (Standard 8 Wochen vorher) „veröffentlicht“ – WARN_DAYS/ON_DAYS aus den Einstellungen */
 const ST_CLS = {"Idee":"idee","Option":"opt","angefragt":"anf","zugesagt":"zug","fix":"fix","in WP angelegt":"wp","veröffentlicht":"pub","abgesagt":"abg"};
 const stCls = e => "st-" + (ST_CLS[e.status] || "opt");
 const stMark = e => e.status === "veröffentlicht" ? `<span class="smk">✓ online</span>` : e.status === "in WP angelegt" ? `<span class="smk">WP</span>` : "";
 function deadlineOf(e){
   if (!e || e.kind !== "va" || e.status === "abgesagt" || !e.date) return null;
   const today = todayStr(); if (e.date < today) return null;
-  const f8 = S_(D(e.date) - 56), f10 = S_(D(e.date) - 70);
+  const f8 = S_(D(e.date) - ON_DAYS), f10 = S_(D(e.date) - WARN_DAYS);
   if (e.status !== "veröffentlicht" && today > f8) return {l:"err", f8, short:"überfällig", t:"Online-Frist verpasst: seit " + fmtY(f8) + " müsste der Termin veröffentlicht sein (Status: " + e.status + ")"};
   if (today >= f10 && STATUS.indexOf(e.status) < STATUS.indexOf("fix")){ const wk = Math.max(0, Math.ceil((D(f8) - D(today)) / 7));
     return {l:"warn", f8, short: wk + " Wo.", t:"Vorwarnung: bis " + fmtY(f8) + " veröffentlichen – Status „" + e.status + "“ ist noch unter „fix“"}; }
@@ -122,7 +145,7 @@ const endPh = e => { const ser = S.series[e.seriesId] || {}; const r = e.endRoom
 /* Belegungsintervalle je Raum: [von, bis, Raum] inkl. Aufbau (Hybrid) und Abbau */
 function occ(e){
   const sp = span(e); if (!sp) return [];
-  const pre = Math.max(setupOf(e), arrives(e) ? 30 : 0), from = sp.s - pre, to = sp.e + afterOf(e) + teardownOf(e), ph = endPh(e), out = [];
+  const pre = Math.max(setupOf(e), arrives(e) ? CI_MIN : 0), from = sp.s - pre, to = sp.e + afterOf(e) + teardownOf(e), ph = endPh(e), out = [];
   const mainEnd = ph ? Math.max(sp.s, sp.e - ph.min) : to;
   roomsOf(e).forEach(r => out.push([from, mainEnd, r, sp.s, ph ? mainEnd : sp.e, false]));
   if (ph) splitRooms(ph.room).forEach(r => out.push([sp.e - ph.min, to, r, sp.e - ph.min, sp.e, true]));
@@ -140,7 +163,7 @@ const nachlaufLK = (a, b, x, y) => { const [p, n, xp] = a.seriesId === LK && b.s
   const pe = t2m(p.start) + (+p.dur||0); if (pe > t2m(n.start)) return false; const lo = Math.max(x[0], y[0]), hi = Math.min(x[1], y[1]); return lo >= pe && hi <= pe + afterOf(p); };
 const sharePartner = e => { if (!endPh(e)) return null; return evList().find(o => o.id !== e.id && o.status !== "abgesagt" && shareEnd(e, o) && endPh(o) && endPh(o).room === endPh(e).room) || null; };
 /* Möblierung Workshopraum: Umbau, wenn sich die Möblierung zwischen zwei aufeinanderfolgenden Nutzungen ändert (kein automatischer Rückbau) */
-const UMBAU_MIN = 120; /* Mindest-Umbauzeit Workshopraum bei Möblierungswechsel (Min) */
+let UMBAU_MIN = 120; /* Mindest-Umbauzeit Workshopraum bei Möblierungswechsel (Min), Einstellungen */
 const FURN = ["leer","Stuhlkreis","Stuhlreihen","Tische mit Stühlen"], FURN_SYM = {"leer":"□","Stuhlkreis":"○","Stuhlreihen":"≡","Tische mit Stühlen":"⊞"};
 const usesWSR = e => e.kind !== "notiz" && e.status !== "abgesagt" && !!e.date && roomsOf(e).includes("Workshopraum");
 const furnOf = e => usesWSR(e) ? (e.furn || serOf(e).furn || "") : "";
@@ -151,7 +174,7 @@ function umbauMap(list){
   return out;
 }
 const allRooms = e => [...new Set(occ(e).map(x => x[2]).concat(roomsOf(e)))];
-/* Ankunft/Check-in: 30 Min vor Beginn sind Küche und Flur durch eintreffende Gäste belegt */
+/* Ankunft/Check-in: CI_MIN (Einstellungen, Standard 30) Min vor Beginn sind Küche und Flur durch eintreffende Gäste belegt */
 /* Check-in je Reihe: "vorher" (30 Min vor Beginn, Standard), "durchgehend" (30 Min vorher und während der ganzen Veranstaltung, Standard bei Beratungen), "keiner" */
 const checkinOf = e => { const c = e.checkin || (S.series[e.seriesId] || {}).checkin; return c || (isBeratung(e) ? "durchgehend" : "vorher"); };
 const arrives = e => e.kind !== "notiz" && e.start && !e.allDay && e.room !== "online" && checkinOf(e) !== "keiner";
@@ -160,8 +183,8 @@ const serOf = e => S.series[e.seriesId] || {};
 const teardownOf = e => e.allDay ? 0 : e.teardown != null && e.teardown !== "" ? +e.teardown || 0 : (+serOf(e).teardown || 0);
 /* Nachlauf: Gäste bleiben nach offiziellem Ende noch im Raum */
 const afterOf = e => e.allDay ? 0 : +(e.after != null && e.after !== "" ? e.after : serOf(e).after) || 0;
-/* Aufbau vor Beginn: eigener Wert je Termin/Reihe, sonst 5 h bei Hybrid */
-const setupOf = e => { if (e.allDay) return 0; const v = e.setup != null && e.setup !== "" ? +e.setup : (serOf(e).setup != null && serOf(e).setup !== "" ? +serOf(e).setup : null); return v != null && !isNaN(v) ? v : (e.hybrid ? 300 : 0); };
+/* Aufbau vor Beginn: eigener Wert je Termin/Reihe, sonst bei Hybrid HYB_SETUP (Einstellungen, Standard 5 h) */
+const setupOf = e => { if (e.allDay) return 0; const v = e.setup != null && e.setup !== "" ? +e.setup : (serOf(e).setup != null && serOf(e).setup !== "" ? +serOf(e).setup : null); return v != null && !isNaN(v) ? v : (e.hybrid ? HYB_SETUP : 0); };
 /* Sperrtag: ganzer Tag ohne Veranstaltung (Abwesenheiten → Sperrtage; alte Notiz-Termine mit blockDay zählen weiter) */
 const sperrOn = d => { const a = Object.values(S.absences).find(x => x.block && x.from <= d && d <= (x.to || x.from)); if (a) return a.note || "keine Veranstaltung"; const n = Object.values(S.events).find(e => e.date === d && e.kind === "notiz" && e.blockDay && e.status !== "abgesagt"); return n ? evName(n) : ""; };
 const outdoorOf = e => e.outdoor === "ja" || e.outdoor === true ? true : e.outdoor === "nein" ? false : !!serOf(e).outdoor;
@@ -184,6 +207,18 @@ function invIssue(e, today){
   if (!e.hybrid || e.invSent || e.kind === "notiz" || e.kind === "vermietung" || e.status === "abgesagt" || !e.date || e.date < (today || todayStr())) return null;
   if (e.status === "veröffentlicht") return {l:"err", t:INV_TXT};
   if (e.status === "fix" || e.status === "in WP angelegt") return {l:"warn", t:INV_TXT};
+  return null;
+}
+/* v112: Website-Abgleich (Routine schreibt Feld web am Termin und meta/websync) – nur kommende Veranstaltungen; Titel werden nicht verglichen */
+function webIssue(e, today){
+  if (e.kind !== "va" || e.status === "abgesagt" || !e.date || e.date < today) return null;
+  const w = e.web || {};
+  if (w.at && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(w.at)){
+    const wd = w.at.slice(0, 10), wt = w.at.slice(11);
+    if (wd !== e.date) return {l:"warn", t:"Website: " + WD[wdOf(wd)] + " " + fmtY(wd) + " " + wt + " (anderer Tag als im Planer)"};
+    if (!e.allDay && e.start && wt !== e.start) return {l:"warn", t:"Website: Beginn " + wt + " (im Planer " + e.start + ")"};
+  }
+  if (e.status === "veröffentlicht" && w.src !== "manuell" && S.websync && (S.websync.gone || []).includes(e.id)) return {l:"warn", t:"Veröffentlicht, aber nicht auf der Website gefunden"};
   return null;
 }
 function computeIssues(list){
@@ -216,6 +251,7 @@ function computeIssues(list){
     if (e.room === "DG (Notfall)" && !e.fixed) add(e,"warn","DG ist nur Notfall-Ausweichfläche");
     { const dl = deadlineOf(e); if (dl) add(e, dl.l, dl.t); }
     { const iv = invIssue(e, today); if (iv) add(e, iv.l, iv.t); }
+    { const wi = webIssue(e, today); if (wi) add(e, wi.l, wi.t); }
     for (const rid of (e.refs||[])){
       const r = S.referents[rid]; if (!r) continue;
       if ((r.blocked||[]).includes(w)) add(e,"err",r.name+" kann nicht "+WDL[w]);
@@ -261,7 +297,7 @@ function computeIssues(list){
   for (const arr of Object.values(byDate)){
     const ws = arr.filter(e => usesWSR(e) && e.start && !e.allDay && furnOf(e)).sort((a, b) => t2m(a.start) - t2m(b.start));
     for (let i = 1; i < ws.length; i++){ const a = ws[i-1], b = ws[i]; if (furnOf(a) === furnOf(b)) continue;
-      const sa = span(a), sb = span(b), ph = endPh(a), free = ph ? sa.e - ph.min : sa.e + afterOf(a), need = sb.s - (arrives(b) ? 30 : 0);
+      const sa = span(a), sb = span(b), ph = endPh(a), free = ph ? sa.e - ph.min : sa.e + afterOf(a), need = sb.s - (arrives(b) ? CI_MIN : 0);
       const req = Math.max(UMBAU_MIN, teardownOf(a) + setupOf(b)), gap = need - free;
       if (gap < req){ const z = {from:Math.min(free, need), to:Math.max(free, need), lanes:["Workshopraum"]};
         const t = "Umbauzeit Workshopraum zu kurz: " + Math.max(0, gap) + " von " + req + " Min (" + furnOf(a) + " → " + furnOf(b) + ", frei ab " + m2t(free) + ", fertig bis " + m2t(need) + ")";
@@ -275,7 +311,7 @@ function pair(a, b, add){
   const sa = span(a), sb = span(b);
   const ext = e => e.room === "online";
   if (a.kind !== "vermietung" && b.kind !== "vermietung" && a.start && b.start && !ext(a) && !ext(b) && !a.allDay && !b.allDay && checkinOf(a) !== "keiner" && checkinOf(b) !== "keiner"){
-    if (Math.abs(t2m(a.start) - t2m(b.start)) < 30 && !shareEnd(a, b)){ const z = {from:Math.max(t2m(a.start),t2m(b.start))-30, to:Math.min(t2m(a.start),t2m(b.start)), lanes:["__ci"]}; add(a,"err","Startabstand unter 30 Min zu „"+evName(b)+"“", z); add(b,"err","Startabstand unter 30 Min zu „"+evName(a)+"“", z); }
+    if (Math.abs(t2m(a.start) - t2m(b.start)) < CI_MIN && !shareEnd(a, b)){ const z = {from:Math.max(t2m(a.start),t2m(b.start))-CI_MIN, to:Math.min(t2m(a.start),t2m(b.start)), lanes:["__ci"]}; add(a,"err","Startabstand unter "+CI_MIN+" Min zu „"+evName(b)+"“", z); add(b,"err","Startabstand unter "+CI_MIN+" Min zu „"+evName(a)+"“", z); }
   }
   if (!sa || !sb) return;
   for (const [x, y] of [[a, b], [b, a]]){ const bk = backupOf(x); if (!bk) continue; const sx = span(x);
@@ -307,7 +343,7 @@ function pair(a, b, add){
     const sx = span(x); if (!sx) continue;
     { const sy = span(y); if (sy && ov(sx.s, sx.e, sy.s, sy.e) && allRooms(y).some(r => EG.includes(r))) continue; } /* gleichzeitige Belegung meldet bereits Stufe 3 */
     let q = occ(y).find(o => EG.includes(o[2]) && ov(sx.s, sx.e, o[0], o[1]));
-    if (!q && arrives(y) && y.start && !y.allDay){ const st = t2m(y.start); if (ov(sx.s, sx.e, st - 30, st)) q = [st - 30, st, "Küche/Esszimmer"]; }
+    if (!q && arrives(y) && y.start && !y.allDay){ const st = t2m(y.start); if (ov(sx.s, sx.e, st - CI_MIN, st)) q = [st - CI_MIN, st, "Küche/Esszimmer"]; }
     if (q){ const z = {from:Math.max(sx.s, q[0]), to:Math.min(sx.e, q[1]), lanes:[q[2]]}; const t = "Ruhe im EG nötig während „"+evName(x)+"“: Belegung, Aufbau, Check-in, Nachlauf oder Abbau von „"+evName(y)+"“ ("+m2t(z.from)+"–"+m2t(z.to)+")"; add(x,"err",t,z); add(y,"err",t,z); }
     /* Rückkehr von unterwegs (Sebastian, 26.10.2026): Gäste einer Veranstaltung „unterwegs“ kommen am Ende ins EG zurück – das darf nicht während absoluter Ruhe passieren */
     else if (y.start && !y.allDay && (y.room || "").split(" + ").includes("unterwegs")){ const sy = span(y), ph = endPh(y), ret = ph ? sy.e - ph.min : sy.e;
@@ -319,16 +355,16 @@ function pair(a, b, add){
     const sc = span(c); if (!sc) return;
     const kx = occ(o).find(x => x[2] === "Küche/Esszimmer" && ov(sc.s, sc.e, x[3], x[4]));
     if (!shared.length && kx) add(c,"err","Beratung im Wohnzimmer, aber Küche belegt durch „"+evName(o)+"“ (Lärm)", {from:Math.max(sc.s,kx[3]), to:Math.min(sc.e,kx[4]), lanes:["Wohnzimmer","Küche/Esszimmer"]});
-    else if (arrives(o)){ const st = t2m(o.start); if (ov(sc.s, sc.e, st - 30, st)) add(c,"warn","Ankunft/Check-in „"+evName(o)+"“ "+m2t(st-30)+"–"+o.start+": Küche und Flur belebt (Lärm)"); }
+    else if (arrives(o)){ const st = t2m(o.start); if (ov(sc.s, sc.e, st - CI_MIN, st)) add(c,"warn","Ankunft/Check-in „"+evName(o)+"“ "+m2t(st-CI_MIN)+"–"+o.start+": Küche und Flur belebt (Lärm)"); }
   };
   noise(a, b); noise(b, a);
-  /* Check-in (30 Min vor Beginn) darf nicht von einer vorhergehenden Veranstaltung überlagert werden (Ende inkl. Nachlauf) */
+  /* Check-in (CI_MIN vor Beginn) darf nicht von einer vorhergehenden Veranstaltung überlagert werden (Ende inkl. Nachlauf) */
   const ciRule = (p, n) => { if (!arrives(p) || !arrives(n) || hit || dk) return; const sp = span(p), sn = span(n); if (!sp || !sn || sp.s >= sn.s || sp.e > sn.s) return;
-    const endP = sp.e + afterOf(p); if (endP > sn.s - 30){ const z = {from:Math.max(sn.s-30, sp.s), to:Math.min(endP, sn.s), lanes:["__ci"].concat(allRooms(p))};
-      const t = "Check-in „"+evName(n)+"“ ab "+m2t(sn.s-30)+" überlagert: „"+evName(p)+"“ endet "+m2t(sp.e)+(afterOf(p) ? " + "+afterOf(p)+" Min Nachlauf" : ""); add(n,"err",t,z); add(p,"err",t,z); } };
+    const endP = sp.e + afterOf(p); if (endP > sn.s - CI_MIN){ const z = {from:Math.max(sn.s-CI_MIN, sp.s), to:Math.min(endP, sn.s), lanes:["__ci"].concat(allRooms(p))};
+      const t = "Check-in „"+evName(n)+"“ ab "+m2t(sn.s-CI_MIN)+" überlagert: „"+evName(p)+"“ endet "+m2t(sp.e)+(afterOf(p) ? " + "+afterOf(p)+" Min Nachlauf" : ""); add(n,"err",t,z); add(p,"err",t,z); } };
   ciRule(a, b); ciRule(b, a);
   /* Ankunft während exklusiver EG-Belegung */
-  const exArr = (c, o) => { const lc = egLevel(c); if (lc < 2 || lc === 4 || (lc === 2 && isBeratung(o)) || !arrives(o) || !allRooms(o).length) return; const sc = span(c), st = t2m(o.start); if (sc && st > sc.s && ov(sc.s, sc.e, st - 30, st)) add(c,"warn","Ankunft/Check-in „"+evName(o)+"“ ab "+m2t(st-30)+" während exklusiver EG-Belegung"); };
+  const exArr = (c, o) => { const lc = egLevel(c); if (lc < 2 || lc === 4 || (lc === 2 && isBeratung(o)) || !arrives(o) || !allRooms(o).length) return; const sc = span(c), st = t2m(o.start); if (sc && st > sc.s && ov(sc.s, sc.e, st - CI_MIN, st)) add(c,"warn","Ankunft/Check-in „"+evName(o)+"“ ab "+m2t(st-CI_MIN)+" während exklusiver EG-Belegung"); };
   exArr(a, b); exArr(b, a);
 }
 /* Akzeptierte Konflikte: meta/accepted {items:{hash:{id,t,at}}} – zählen nicht mehr als Fehler/Hinweis, bleiben in der Woche als Warnung sichtbar */
@@ -360,6 +396,26 @@ const qh = (html, label) => `<span class="qh${label?" lab":""}" tabindex="0" rol
 function legendThemes(){ return `<div class="lgt"><b>Themenbereiche</b>${Object.entries(THEMES).filter(([k]) => k!=="Sonstige").map(([k,v]) => `<span><i class="sw" style="background:${v[0]}"></i>${esc(k)}</span>`).join("")}<b>Wochen und Tage</b><span><i class="sw" style="background:var(--quiet);border:1px solid var(--violet-2)"></i>ruhige Woche</span><span><i class="sw" style="background:var(--pause)"></i>Pause</span><span><i class="sw" style="background:var(--hatch)"></i><i class="sw" style="background:color-mix(in srgb, var(--violet-2) 20%, var(--paper))"></i>Schulferien (Woche: nur Tageskopf)</span><span><i class="sw" style="background:var(--err-bg)"></i>Feiertag / Sperrtag</span></div>`; }
 function legend(){ return `<div class="legend">${Object.entries(THEMES).filter(([k]) => k!=="Sonstige").map(([k,v]) => `<span><i class="sw" style="background:${v[0]}"></i>${esc(k)}</span>`).join("")}<span><i class="sw" style="background:var(--quiet);border:1px solid var(--violet-2)"></i>ruhige Woche</span><span><i class="sw" style="background:var(--pause)"></i>Pause</span><span><i class="sw" style="background:var(--hatch)"></i><i class="sw" style="background:color-mix(in srgb, var(--violet-2) 20%, var(--paper))"></i>Schulferien (Woche: nur Tageskopf)</span></div>`; }
 
+/* v112: Link auf survivors-home.de (Feld web am Termin; a.clink wird von der Klick-Behandlung durchgelassen) */
+const webLink = e => e && e.web && /^https?:\/\//.test(e.web.url || "") ? ` <a class="clink webl" href="${esc(e.web.url)}" target="_blank" rel="noopener" title="Auf survivors-home.de öffnen${e.web.title ? ": " + esc(e.web.title) : ""}">↗</a>` : "";
+let WS_MAX_H = 36; /* Einstellungen */
+/* Routine läuft nur Mo–Fr: gezählt werden nur Stunden an Werktagen (Ortszeit), sonst warnt jedes Wochenende */
+function wsWorkHours(from, to){
+  let ms = 0, t = new Date(from);
+  while (t < to){ const n = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1), e = n < to ? n : to; const wd = t.getDay(); if (wd >= 1 && wd <= 5) ms += e - t; t = n; }
+  return ms / 3600e3;
+}
+/* Zeitpunkt (ISO mit Zeitzone) in Ortszeit: „01.11.2026, 05:17 Uhr“ */
+const wsWhen = s => { const d = new Date(s); return isNaN(d) ? bkWhen(s) : fmtY(d.getFullYear() + "-" + pad(d.getMonth()+1) + "-" + pad(d.getDate())) + ", " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + " Uhr"; };
+/* Warnleiste, wenn der Website-Abgleich (Routine) länger als 36 Werktagsstunden nicht erfolgreich lief – nicht im Team-Modus */
+function wsBar(){
+  if (TEAM || !S.wsLoaded) return "";
+  const w = S.websync || {}, ok = w.okAt ? Date.parse(w.okAt) : NaN;
+  if (!isNaN(ok) && wsWorkHours(ok, new Date()) <= WS_MAX_H) return "";
+  const last = isNaN(ok) ? "noch nie erfolgreich gelaufen" : "zuletzt erfolgreich am " + wsWhen(w.okAt);
+  return `<div class="wsbar" role="status"><b>Website-Abgleich ${last}.</b> Links und Status „veröffentlicht“ können veraltet sein.${w.err ? " Letzter Fehler: " + esc(w.err) : ""} Routine „Belegungsplan aktualisieren“ in claude.ai/code/routines prüfen.</div>`;
+}
+
 /* ---------- Kopfzahlen ---------- */
 function renderKpis(){
   const ev = evList().filter(e => e.date.startsWith(String(YEAR)) && e.kind === "va" && e.status !== "abgesagt");
@@ -371,7 +427,7 @@ function renderKpis(){
   const fix = ev.filter(e => ["fix","in WP angelegt","veröffentlicht"].includes(e.status)).length;
   const k = (n, txt, cls = "", tip = "") => n > 0 ? `<span${cls ? ` class="${cls}"` : ""}${tip ? ` title="${tip}"` : ""}><b>${n}</b>${txt}</span>` : "";
   $("#kpis").innerHTML = k(ev.length, "Termine " + YEAR) + k(umb, "Umbauten Workshopraum", "", "Umbauten der Möblierung im Workshopraum (Wechsel zwischen aufeinanderfolgenden Nutzungen)") + k(fix, "fix")
-    + k(dueE, "Online-Frist verpasst", "e") + k(dueW, "Vorwarnung 10 Wo.", "w") + k(err, "mit Fehlern", "e") + k(warn, "mit Hinweisen", "w");
+    + k(dueE, "Online-Frist verpasst", "e") + k(dueW, "Vorwarnung " + WARN_DAYS/7 + " Wo.", "w") + k(err, "mit Fehlern", "e") + k(warn, "mit Hinweisen", "w");
 }
 
 /* ---------- Ansicht: Jahr ---------- */
@@ -400,7 +456,7 @@ function viewJahr(){
         if (e.kind === "notiz") return `<button class="ych note" data-ev="${e.id}" title="${esc(evName(e))}">✎ ${esc(evName(e))}</button>`;
         return `<button class="ych${cls}" data-ev="${e.id}" style="--c:${e.kind==="vermietung"?"var(--muted)":t[0]}" title="${esc((e.start||"–")+" "+evName(e)+(e.room?" · "+e.room:"")+" · "+(e.status||""))}"><b>${esc(e.allDay?"ganzt.":(e.start||"–"))}</b> ${esc(evName(e))}${e.status==="veröffentlicht"?" ✓":""}</button>`; }).join("");
       /* Mini-Zeitstrahl 10–21 Uhr: Belegung je Tag, Überschneidungen in Spuren */
-      const T0 = 10*60, T1 = 21*60, TS = T1 - T0, lanesEnd = [], segs = [];
+      const T0 = Math.floor(t2m(OPEN_FROM)/60)*60, T1 = Math.ceil(t2m(OPEN_TO)/60)*60, TS = T1 - T0, lanesEnd = [], segs = [];
       evs.filter(e => e.kind !== "notiz" && span(e)).sort((a,b) => span(a).s - span(b).s).forEach(e => {
         const sp = span(e); let li = lanesEnd.findIndex(x => x <= sp.s); if (li < 0){ li = lanesEnd.length; lanesEnd.push(0); } lanesEnd[li] = sp.e + (e.allDay ? 0 : afterOf(e));
         segs.push({e, sp, li}); });
@@ -410,14 +466,14 @@ function viewJahr(){
         return `<i class="yseg${e.kind==="vermietung"?" rent":""}${" "+stCls(e)}${worst(e.id)==="err"?" bad":""}" style="left:${l}%;width:${w}%;top:${li/nl*100}%;height:${100/nl}%;background-color:${e.kind==="vermietung"?"var(--muted)":t[0]}" title="${esc((e.start||"–")+"–"+m2t(sp.e)+" "+evName(e))}"></i>` + (afterOf(e) && !e.allDay && sp.e < T1 ? `<i class="ytail" style="left:${(sp.e-T0)/TS*100}%;width:${Math.min(afterOf(e), T1-sp.e)/TS*100}%;top:${li/nl*100}%;height:${100/nl}%;--c:${e.kind==="vermietung"?"var(--muted)":t[0]}" title="${esc("Nachlauf Gäste bis "+m2t(sp.e+afterOf(e))+" · "+evName(e))}"></i>` : ""); }).join("");
       const noteMark = evs.some(e => e.kind === "notiz") ? `<span class="notes" title="${esc(evs.filter(e => e.kind==="notiz").map(evName).join(", "))}">✎</span>` : "";
       const dst = dayState(evs), past = d < todayStr(); dsts.push(dst);
-      const dIcon = dst === "er" ? `<span class="dsi er" title="Online-Frist verpasst">!</span>` : dst === "wn" ? `<span class="dsi wn" title="Vorwarnung: Status zu niedrig (10 Wochen vorher mind. fix)">!</span>` : dst === "ok" ? `<span class="dsi ok" title="Alle Termine veröffentlicht">✓</span>` : "";
+      const dIcon = dst === "er" ? `<span class="dsi er" title="Online-Frist verpasst">!</span>` : dst === "wn" ? `<span class="dsi wn" title="Vorwarnung: Status zu niedrig (${WARN_DAYS/7} Wochen vorher mind. fix)">!</span>` : dst === "ok" ? `<span class="dsi ok" title="Alle Termine veröffentlicht">✓</span>` : "";
       return `<td class="dcell${hol?" hol":""}${fer?" fer":""}${past?" past":""}" data-goweek="${d}" title="${esc(fer||"")}"><span class="dn">${d.slice(8)}${dIcon}${busy ? `<span class="busy">${String(Math.round(busy/30)/2).replace(".",",")} h</span>` : ""}${noteMark}</span><div class="dots"><div class="ytl">${tl}</div></div><div class="ychips">${chips}</div></td>`;
     }).join("");
     const fer = [...new Set(days.map(ferienOn).filter(Boolean))];
     const kwSt = dsts.includes("er") ? " kw-er" : dsts.includes("wn") ? " kw-wn" : (dsts.some(Boolean) && dsts.every(x => x === "ok" || x === "") && dsts.includes("ok") ? " kw-ok" : ""), wPast = S_(D(mon)+6) < todayStr();
     rows.push(`<tr class="${st}${newM?" month":""}${wPast?" past":""}${UI.yOpen === key ? " yopen" : ""}" data-ykw="${key}"><td class="mname">${newM?MONTHS[m].slice(0,3)+yLab:""}</td><td class="kw${kwSt}" title="${kwSt===" kw-er"?"Woche mit verpasster Online-Frist":kwSt===" kw-wn"?"Woche mit Vorwarnung":kwSt===" kw-ok"?"Alle Termine dieser Woche mit Status sind veröffentlicht":""}">${w}</td><td class="rng">${fmtRng(days[0], S_(D(mon)+6))}</td><td><button class="wkst ${st}" data-wk="${key}">${stLab(st)}</button></td>${cells}<td class="notes">${esc([...fer, ...notes].join(" · "))}</td><td class="wkissue">${cnt.err?`<span class="lv err">${cnt.err}</span> `:""}${cnt.warn?`<span class="lv warn">${cnt.warn}</span>`:""}</td></tr>`);
   }
-  const yHelp = `<b>Jahresüberblick</b> (Oktober 2026 bis Dezember ${YEAR})<ul><li>Tag anklicken öffnet die Wochenansicht; neue Termine dort mit „+ Termin“ am Tag anlegen.</li><li>Termin anklicken öffnet den Termin.</li><li><b>Ungespeicherte Änderungen</b> im Dialog: geänderte Felder magenta umrahmt mit Balken links, betroffene Bereiche mit „● geändert“, unten die Anzahl. Verschwindet nach „Speichern“ oder wenn der alte Wert wieder eingetragen wird.</li><li><b>Duplizieren</b> (im Termin): übernimmt alle Einstellungen inkl. Status; nur die Startzeit ist leer und muss neu eingetragen werden. Das Duplikat ist oben violett als „Duplikat“ markiert und erst nach „Speichern“ angelegt.</li><li>Kompakt: Maus über eine Woche zeigt deren Termine mit Startzeit.</li><li>Kopfleiste und Steuerleiste bleiben beim Scrollen oben stehen.</li><li>Die oberste sichtbare Woche wird gemerkt: beim Zurückwechseln (auch nach Neuladen) steht der Überblick wieder dort.</li><li><b>Heute</b>: schiebt die aktuelle Woche ganz nach oben und klappt sie auf (bleibt aufgeklappt, bis eine andere Darstellung gewählt wird). Liegt heute außerhalb des Überblicks, springt er zur ersten bzw. letzten Woche.</li><li>Zeitstrahl je Tag: Belegung 10–21 Uhr, Zahl = belegte Stunden.</li><li>Roter blinkender Punkt: Termin mit Fehler.</li><li>Blass/gestrichelt: Idee, Option, angefragt (je blasser, desto früher im Ablauf).</li><li>Am Tag: <b style="color:#2e8b57">✓</b> alle Termine veröffentlicht · <b style="color:#e8a200">!</b> Vorwarnung (10 Wochen vorher Status unter „fix“) · <b style="color:#e5322d">!</b> Online-Frist verpasst (8 Wochen vorher nicht veröffentlicht).</li><li>Farbige Kante an der KW: schlechtester Tag der Woche (rot, gelb, grün).</li><li>Vergangene Tage und Wochen: schraffiert.</li></ul>`;
+  const yHelp = `<b>Jahresüberblick</b> (Oktober 2026 bis Dezember ${YEAR})<ul><li>Tag anklicken öffnet die Wochenansicht; neue Termine dort mit „+ Termin“ am Tag anlegen.</li><li>Termin anklicken öffnet den Termin.</li><li><b>Ungespeicherte Änderungen</b> im Dialog: geänderte Felder magenta umrahmt mit Balken links, betroffene Bereiche mit „● geändert“, unten die Anzahl. Verschwindet nach „Speichern“ oder wenn der alte Wert wieder eingetragen wird.</li><li><b>Duplizieren</b> (im Termin): übernimmt alle Einstellungen inkl. Status; nur die Startzeit ist leer und muss neu eingetragen werden. Das Duplikat ist oben violett als „Duplikat“ markiert und erst nach „Speichern“ angelegt.</li><li>Kompakt: Maus über eine Woche zeigt deren Termine mit Startzeit.</li><li>Kopfleiste und Steuerleiste bleiben beim Scrollen oben stehen.</li><li>Die oberste sichtbare Woche wird gemerkt: beim Zurückwechseln (auch nach Neuladen) steht der Überblick wieder dort.</li><li><b>Heute</b>: schiebt die aktuelle Woche ganz nach oben und klappt sie auf (bleibt aufgeklappt, bis eine andere Darstellung gewählt wird). Liegt heute außerhalb des Überblicks, springt er zur ersten bzw. letzten Woche.</li><li>Zeitstrahl je Tag: Belegung ${OPEN_FROM}–${OPEN_TO} Uhr, Zahl = belegte Stunden.</li><li>Roter blinkender Punkt: Termin mit Fehler.</li><li>Blass/gestrichelt: Idee, Option, angefragt (je blasser, desto früher im Ablauf).</li><li>Am Tag: <b style="color:#2e8b57">✓</b> alle Termine veröffentlicht · <b style="color:#e8a200">!</b> Vorwarnung (${WARN_DAYS/7} Wochen vorher Status unter „fix“) · <b style="color:#e5322d">!</b> Online-Frist verpasst (${ON_DAYS/7} Wochen vorher nicht veröffentlicht).</li><li>Farbige Kante an der KW: schlechtester Tag der Woche (rot, gelb, grün).</li><li>Vergangene Tage und Wochen: schraffiert.</li></ul>`;
   /* Steuerleiste + Tabellenkopf kommen in die feste Kopfleiste (ein einziges klebendes Element) */
   const cg = `<colgroup><col class="c-m"><col class="c-kw"><col class="c-rng"><col class="c-st"><col class="c-d"><col class="c-d"><col class="c-d"><col class="c-d"><col class="c-d"><col class="c-d"><col class="c-note"><col class="c-iss"></colgroup>`;
   UI.yHead = `<div class="hwrap"><div class="head"><div class="weeknav ynav"><span class="seg" role="group" aria-label="Darstellung"><button class="btn ${UI.yearDetail?"":"primary"}" data-ydet="0">Kompakt</button><button class="btn ${UI.yearDetail?"primary":""}" data-ydet="1">Details</button></span><button class="btn" data-ytoday="1" title="Zur aktuellen Woche springen und sie aufklappen">Heute</button><h2>Jahresüberblick ${qh(`<div class="qcols"><div>${yHelp}</div><div>${legendThemes()}</div></div>`)}</h2></div></div><div class="scroll yhs"><table class="year${UI.yearDetail?" detail":""}">${cg}<thead><tr><th></th><th>KW</th><th>Zeitraum</th><th class="nw">Status ${qh(`<b>Wochenstatus</b><ul><li>Klick auf den Status wechselt: belebt → ruhig → Pause.</li><li><b>belebt</b>: normales Programm.</li><li><b>ruhig</b>: so wenig Programm wie möglich, regulär nur Walk and Talk; andere Reihen nur, wenn sie es erlauben oder als Ausnahme.</li><li><b>Pause</b>: keine Termine.</li></ul>Die Prüfung und die Jahresplanung berücksichtigen den Status.`)}</th><th>Mo</th><th>Di</th><th>Mi</th><th>Do</th><th>Fr</th><th>Sa</th><th>Ferien / Feiertage</th><th>Prüfung ${qh("Fehler, Hinweise und Infos der Termine dieser Woche. Details im Reiter „Prüfung“ oder im Termin.")}</th></tr></thead></table></div></div>`;
@@ -456,14 +512,14 @@ const wkLegend = () => {
    + [["st-idee","Idee: nur denkbar, noch nichts geprüft"],["st-opt","Option: intern vorgemerkt, noch nicht angefragt"],["st-anf","angefragt: Referent ist gefragt"],["st-zug","zugesagt: Referent hat bestätigt"],["st-fix","fix: intern freigegeben, alle Angaben komplett"],["st-wp","in WP angelegt: in WordPress angelegt"],["st-pub","veröffentlicht: online auf survivors-home.de"],["st-abg","abgesagt"]].map(([k,t]) => row(smp(`<button class="blk ${k}" style="left:10%;width:70%;background-color:${c};--c:${c}"><small>14:00</small>Termin${k==="st-wp"?'<span class="smk">WP</span>':k==="st-pub"?'<span class="smk">✓ online</span>':""}</button>`), t)).join("")
    + row(`<div class="lgs" style="background:var(--quiet);border:3px solid var(--violet-2)"></div>`, "Ruhige Woche: violetter Hinweisbalken oben, dicker violetter Rahmen, getönte Tagesflächen, Statusknopf violett gefüllt. Programmpause: grauer Balken, gestrichelter Rahmen.")
    + row(smp(`<button class="blk draft" style="left:10%;width:55%;background-color:${c};--c:${c};animation:none"><small>Entwurf · 14:00</small>Termin</button><div class="oldpos" style="left:70%;width:25%">bisher</div>`), "Vorschau beim Bearbeiten, Neuanlegen oder Duplizieren: der geöffnete Termin bzw. sein Entwurf aus dem Dialog rechts erscheint sofort hier, magenta blinkend umrandet, die gespeicherte Lage gepunktet als „bisher“. Die Woche springt mit dem Datum mit; bei Änderung von Datum, Zeit, Dauer oder Raum wechselt die Ansicht automatisch in die Woche. Abbrechen führt zur vorherigen Ansicht zurück, Speichern bleibt in der neuen Woche.")
-   + row(smp(`<button class="blk st-opt" style="left:10%;width:80%;background-color:${c};--c:${c}">Termin<span class="dlb warn">⏱ 2 Wo.</span></button>`), "Vorwarnung: ab 10 Wochen vorher, solange der Status unter „fix“ liegt (Zahl = Wochen bis zur 8-Wochen-Frist)")
-   + row(smp(`<button class="blk st-zug" style="left:10%;width:80%;background-color:${c};--c:${c}">Termin<span class="dlb err">⏱ überfällig</span></button>`), "Online-Frist verpasst: 8 Wochen vorher nicht veröffentlicht (Fehler)")
+   + row(smp(`<button class="blk st-opt" style="left:10%;width:80%;background-color:${c};--c:${c}">Termin<span class="dlb warn">⏱ 2 Wo.</span></button>`), "Vorwarnung: ab " + WARN_DAYS/7 + " Wochen vorher, solange der Status unter „fix“ liegt (Zahl = Wochen bis zur " + ON_DAYS/7 + "-Wochen-Frist)")
+   + row(smp(`<button class="blk st-zug" style="left:10%;width:80%;background-color:${c};--c:${c}">Termin<span class="dlb err">⏱ überfällig</span></button>`), "Online-Frist verpasst: " + ON_DAYS/7 + " Wochen vorher nicht veröffentlicht (Fehler)")
    + row(smp(`<div class="setup" style="left:6%;width:30%"></div><button class="blk" style="left:36%;width:54%;background-color:${c}">Hybrid</button>`), "Schraffiert davor: Technik-Aufbau")
    + row(smp(`<button class="blk" style="left:6%;width:54%;background-color:${c}">Termin</button><div class="tail" style="left:60%;width:24%;--c:${c}"></div>`), "Gestrichelter Anhang: Nachlauf Gäste (Raum belegt, zählt nicht zur Veranstaltungszeit)")
    + row(smp(`<div class="excl" style="left:6%;width:80%"></div>`), "Schraffierte Fläche in anderen Räumen: EG exklusiv belegt (Stufe 3 „kein anderes Programm“ bzw. 4 „absolute Ruhe“)")
    + row(smp(`<div class="excl ex2" style="left:6%;width:80%"></div>`), "Leichter schraffiert: Stufe 2 – parallel nur Einzelberatungen zulässig")
    + row(smp(`<div class="bkp" style="left:6%;width:70%;--c:${c}">Qigong</div>`), "Gestrichelter Rahmen: Ausweichraum bei Schlechtwetter (freihalten)")
-   + row(smp(`<div class="ci" style="left:30%;width:20%"></div>`, 22), "Check-in-Zeile: 30 Min vor Beginn sind Küche und Flur belebt")
+   + row(smp(`<div class="ci" style="left:30%;width:20%"></div>`, 22), "Check-in-Zeile: " + CI_MIN + " Min vor Beginn sind Küche und Flur belebt")
    + row(smp(`<div class="ci" style="left:10%;width:16%"></div><div class="ci run" style="left:26%;width:60%"></div>`, 22), "Heller gestreift: durchgehender Check-in während der Veranstaltung")
    + row(smp(`<button class="blk" style="left:6%;width:50%;background-color:${c}">A</button><button class="blk" style="left:56%;width:38%;background-color:${c}">B</button><div class="zone" style="left:48%;width:16%"></div>`), "Rot-weiß mit laufendem Rand: Fehlerstelle – Maus darüber zeigt den Grund, Klick öffnet „Akzeptieren“")
    + row(smp(`<button class="blk" style="left:6%;width:50%;background-color:${c}">A</button><button class="blk" style="left:56%;width:38%;background-color:${c}">B</button><div class="zone acc" style="left:48%;width:16%"></div>`), "Gelb-weiß: akzeptierter Konflikt (zählt nicht mehr als Fehler; Klick: wieder aktivieren)")
@@ -473,14 +529,14 @@ const wkLegend = () => {
    + row(smp(`<span class="fur" style="left:8%">□</span><span class="fur" style="left:30%">○</span><span class="fur" style="left:52%">≡</span><span class="fur chg" style="left:72%">⇄ ⊞</span>`), "Workshopraum-Möblierung: □ leer · ○ Stuhlkreis · ≡ Stuhlreihen · ⊞ Tische mit Stühlen; ⇄ = vorher Umbau nötig (Maus zeigt von → nach)")
    + row(`<div class="lgs lgn"></div>`, "Schraffierter Streifen zwischen Tagen: Nacht (21–10 Uhr)")
    + row(`<div class="lgs" style="position:relative;height:34px"><button class="blk" style="left:5%;width:45%;top:2px;bottom:auto;height:13px;background-color:${c};--c:${c}"></button><div class="cnx mid" style="left:50%;top:15px;bottom:auto;height:4px"></div><div class="cnx t-dn" style="left:50%;top:19px;height:2px"></div><button class="blk" style="left:50%;width:30%;top:21px;bottom:auto;height:11px;background-color:${c};--c:${c}"></button></div>`, "Abschluss in einem anderen Raum (z. B. Walk and Talk am Esstisch): dunkle Verbindungslinie mit Pfeil vom Hauptteil zum Abschluss. Maus auf einen Teil hebt alle Teile derselben Veranstaltung hervor.")
-   + row(`<div class="lgs" style="position:relative"><div class="alt ok" style="left:4%;width:44%"></div><div class="alt wn" style="left:52%;width:44%"></div></div>`, "Alternativen (nur bei geöffnetem Termin): grün schraffiert = hier passt der Termin mit gleicher Dauer und gleichem Raum ohne Konflikt, gelb = nur mit Hinweis (z. B. ruhige Woche, Lärm). Geprüft werden alle Regeln: andere Termine, Reihe, Referent, Feiertage, Pausen, Kernöffnungszeit. Beginn in 30-Minuten-Schritten, Montag bis Freitag (Samstag nur bei Samstagsterminen), Wochen mit Programmpause ohne Schraffur, ruhige Wochen gelb (außer die Reihe erlaubt ruhige Wochen). Mit ← → durch die Wochen blättern, die Schraffur rechnet je Woche neu. Maus auf die Schraffur zeigt die möglichen Beginnzeiten und bei Gelb den Grund. Schalter oben: „Alternativen ausblenden“. Unter dem Raster listet „Mögliche Zeiten“ alle Startfenster über mehrere Wochen (als Tabelle kopierbar, übernehmbar).")
-   + `</div><div class="notes">Kopfzeile: ← → blättert, Datumsfeld springt zu einer Woche, rechts der Wochenstatus (Klick: belebt → ruhig → Pause). „+ Termin“ legt einen Termin an diesem Tag an. Oben Mo–Mi, unten Do–Sa. Zeitachse je Tag 10–21 Uhr, länger, wenn Termine früher beginnen oder später enden. Maus auf einen Block zeigt Name, Zeit und Raum.</div>`;
+   + row(`<div class="lgs" style="position:relative"><div class="alt ok" style="left:4%;width:44%"></div><div class="alt wn" style="left:52%;width:44%"></div></div>`, "Alternativen (nur bei geöffnetem Termin): grün schraffiert = hier passt der Termin mit gleicher Dauer und gleichem Raum ohne Konflikt, gelb = nur mit Hinweis (z. B. ruhige Woche, Lärm). Geprüft werden alle Regeln: andere Termine, Reihe, Referent, Feiertage, Pausen, Kernöffnungszeit. Beginn in " + ALT_STEP + "-Minuten-Schritten, Montag bis Freitag (Samstag nur bei Samstagsterminen), Wochen mit Programmpause ohne Schraffur, ruhige Wochen gelb (außer die Reihe erlaubt ruhige Wochen). Mit ← → durch die Wochen blättern, die Schraffur rechnet je Woche neu. Maus auf die Schraffur zeigt die möglichen Beginnzeiten und bei Gelb den Grund. Schalter oben: „Alternativen ausblenden“. Unter dem Raster listet „Mögliche Zeiten“ alle Startfenster über mehrere Wochen (als Tabelle kopierbar, übernehmbar).")
+   + `</div><div class="notes">Kopfzeile: ← → blättert, Datumsfeld springt zu einer Woche, rechts der Wochenstatus (Klick: belebt → ruhig → Pause). „+ Termin“ legt einen Termin an diesem Tag an. Oben Mo–Mi, unten Do–Sa. Zeitachse je Tag ${OPEN_FROM}–${OPEN_TO} Uhr, länger, wenn Termine früher beginnen oder später enden. Maus auf einen Block zeigt Name, Zeit und Raum.</div>`;
 };
 let UMB = new Map();
 /* Alternativen: mögliche Lagen des geöffneten Termins in der angezeigten Woche (gleiche Dauer und Räume, alle Prüfregeln inkl. Reihe und Referent) */
 const ALT_IGN = /^Online-Frist|^Vorwarnung|Startzeit offen|Raum offen|^Termineinladung/;
 /* v110: Beginn nur in 30-Min-Schritten; nur Mo–Fr (Samstag nur, wenn der Originaltermin auf einem Samstag liegt); Programmpausen ausgelassen */
-const ALT_STEP = 30;
+let ALT_STEP = 30; /* Einstellungen */
 function altOrig(dr){ const id = UI.drawer && UI.drawer.kind === "ev" && UI.drawer.id, o = id && S.events[id]; return (o && o.date) || UI.altD0 || (dr && dr.date) || ""; }
 function altDayOk(dr, d){ const w = wdOf(d); if (w === 0) return false; if (w === 6 && wdOf(altOrig(dr) || d) !== 6) return false; return weekStatus(d) !== "pause"; }
 function altSlots(dr, base, d){
@@ -536,7 +592,7 @@ function altListHtml(dr, base){
     if (k !== lastK){ lastK = k; rows += `<div class="alk">KW ${w}${st !== "belebt" ? " · " + stLab(st) : ""}</div>`; }
     rows += `<div class="ald"><button class="aldt" data-altgo="${x.d}" title="Tag in der Wochenansicht zeigen">${WD[wdOf(x.d)]} ${fmtY(x.d)}</button><span class="alws">${x.ws.map(v =>
       `<span class="alc ${v.w ? "wn" : "ok"}"><button class="alcg" data-altgo="${x.d}" title="${esc((v.w ? "Nur mit Hinweis: " + (v.r || "–") : "Ohne Konflikt") + " – Beginn " + altWinTxt(v) + " Uhr. Klick: Tag in der Wochenansicht zeigen")}">${altWinTxt(v)}</button><button class="alcs" data-altset="${x.d}|${m2t(v.a)}" title="${esc("Datum " + fmtY(x.d) + " und Beginn " + m2t(v.a) + " in den Termin übernehmen")}">übernehmen</button></span>`).join("")}</span></div>`; });
-  const help = qh(`<b>Mögliche Zeiten</b><ul><li>Listet alle Startfenster, in denen der geöffnete Termin mit gleicher Dauer und gleichem Raum passt – nach denselben Regeln wie die Schraffur in der Wochenansicht.</li><li>Grün = ohne Konflikt, gelb = nur mit Hinweis (z. B. ruhige Woche, Lärm). Maus auf ein gelbes Fenster zeigt den Grund. In ruhigen Wochen gelb, außer die Reihe erlaubt ruhige Wochen.</li><li>„14:00–15:30“ heißt: Beginn zwischen 14:00 und 15:30 möglich (30-Minuten-Schritte, also 14:00, 14:30, 15:00, 15:30).</li><li>Zeitraum: ab der Woche, die beim Öffnen des Termins angezeigt war (frühestens heute), 4 Wochen, 3 Monate oder bis zum Jahresende. Ab 1. Oktober (weniger als 3 Monate bis zum Jahresende) gilt das Ende des Folgejahres; das Jahr steht in der Auswahl. Die Liste bleibt beim Blättern gleich.</li><li>Geprüft werden Montag bis Freitag; Samstag nur, wenn der Termin selbst auf einem Samstag liegt. Wochen mit Programmpause werden ausgelassen. Dasselbe gilt für die Schraffur in der Wochenansicht.</li><li>Klick auf Datum oder Zeit: springt zu diesem Tag in der Wochenansicht. „übernehmen“ setzt Datum und Beginn (Anfang des Fensters) in den Termin; gespeichert wird erst mit „Speichern“.</li><li>„Als Tabelle kopieren“: je Zeitfenster eine Zeile mit den Spalten Wochentag, Datum, Status (grüner/gelber Punkt mit „frei“ bzw. „mit Hinweis“) und Beginn. Lässt sich in Outlook, Word und Excel einfügen; in Excel landen die Werte in getrennten Spalten.</li></ul>`);
+  const help = qh(`<b>Mögliche Zeiten</b><ul><li>Listet alle Startfenster, in denen der geöffnete Termin mit gleicher Dauer und gleichem Raum passt – nach denselben Regeln wie die Schraffur in der Wochenansicht.</li><li>Grün = ohne Konflikt, gelb = nur mit Hinweis (z. B. ruhige Woche, Lärm). Maus auf ein gelbes Fenster zeigt den Grund. In ruhigen Wochen gelb, außer die Reihe erlaubt ruhige Wochen.</li><li>„14:00–15:30“ heißt: Beginn zwischen 14:00 und 15:30 möglich (${ALT_STEP}-Minuten-Schritte).</li><li>Zeitraum: ab der Woche, die beim Öffnen des Termins angezeigt war (frühestens heute), 4 Wochen, 3 Monate oder bis zum Jahresende. Ab 1. Oktober (weniger als 3 Monate bis zum Jahresende) gilt das Ende des Folgejahres; das Jahr steht in der Auswahl. Die Liste bleibt beim Blättern gleich.</li><li>Geprüft werden Montag bis Freitag; Samstag nur, wenn der Termin selbst auf einem Samstag liegt. Wochen mit Programmpause werden ausgelassen. Dasselbe gilt für die Schraffur in der Wochenansicht.</li><li>Klick auf Datum oder Zeit: springt zu diesem Tag in der Wochenansicht. „übernehmen“ setzt Datum und Beginn (Anfang des Fensters) in den Termin; gespeichert wird erst mit „Speichern“.</li><li>„Als Tabelle kopieren“: je Zeitfenster eine Zeile mit den Spalten Wochentag, Datum, Status (grüner/gelber Punkt mit „frei“ bzw. „mit Hinweis“) und Beginn. Lässt sich in Outlook, Word und Excel einfügen; in Excel landen die Werte in getrennten Spalten.</li></ul>`);
   return `<section class="altlist" aria-label="Mögliche Zeiten"><div class="alh"><h3>Mögliche Zeiten${help}</h3><span class="alsub">${esc(evName(dr))} · ${esc(durTxt(dr.dur))} · ${esc(dr.room || "Raum offen")} · ${fmtY(sp.from)}–${fmtY(sp.to)}</span><span class="altools"><select class="in" data-altrg="1" aria-label="Zeitraum">${ALT_RG.map(([v,l]) => `<option value="${v}"${sp.rg === v ? " selected" : ""}>${v === "jahr" ? l + " " + altYearEnd(altSpan().from).slice(0,4) : l}</option>`).join("")}</select><button class="btn" data-altcopy="tab"${nW ? "" : " disabled"} title="Tabelle mit den Spalten Wochentag, Datum, Status, Beginn kopieren (für Mail, Word oder Excel)">Als Tabelle kopieren</button></span></div>`
     + (nW ? `<div class="alsum">${L.days.length} Tage · ${nW} Startfenster${nH ? ` · davon ${nH} nur mit Hinweis` : ""}</div><div class="alrows">${rows}</div>` : `<div class="alsum">Im gewählten Zeitraum keine passende Lage.</div>`) + `</section>`;
 }
@@ -582,14 +638,14 @@ function viewWoche(o){
     const evs = L.filter(e => e.date === d).sort(sortEv);
     const notes = evs.filter(e => e.kind === "notiz"), timed = evs.filter(e => span(e)), open = evs.filter(e => e.kind !== "notiz" && !span(e));
     const tags = [FEIER[d] ? `<span class="lv err">${esc(FEIER[d])}</span>` : "", sperrOn(d) ? `<span class="lv err" title="Sperrtag (Abwesenheiten)">Sperrtag: ${esc(sperrOn(d))}</span>` : "", ferienOn(d) ? `<span class="lv info">${esc(ferienOn(d))}</span>` : "", ...notes.map(n => `<span class="lv info" data-ev="${n.id}" style="cursor:pointer">✎ ${esc(evName(n))}</span>`)].join("");
-    /* Zeitachse je Tag: Standard 10–21 Uhr, erweitert auf frühere/spätere Belegung (inkl. Aufbau und Check-in) */
-    let lo = 10*60, hi = 21*60;
-    for (const e of timed){ const sp = span(e); lo = Math.min(lo, sp.s - Math.max(setupOf(e), arrives(e) ? 30 : 0)); hi = Math.max(hi, sp.e + (e.allDay ? 0 : afterOf(e))); }
+    /* Zeitachse je Tag: Kernöffnungszeit (Einstellungen, Standard 10–21 Uhr), erweitert auf frühere/spätere Belegung (inkl. Aufbau und Check-in) */
+    let lo = Math.floor(t2m(OPEN_FROM)/60)*60, hi = Math.ceil(t2m(OPEN_TO)/60)*60;
+    for (const e of timed){ const sp = span(e); lo = Math.min(lo, sp.s - Math.max(setupOf(e), arrives(e) ? CI_MIN : 0)); hi = Math.max(hi, sp.e + (e.allDay ? 0 : afterOf(e))); }
     const DAY0 = Math.max(0, Math.floor(lo/60)*60), DAYSPAN = Math.min(24*60, Math.ceil(hi/60)*60) - DAY0;
     const hours = []; for (let h = DAY0/60; h < (DAY0+DAYSPAN)/60; h++) hours.push(`<span style="left:${(h*60-DAY0)/DAYSPAN*100}%">${h}</span>`);
     const lanes = {}; LANES.forEach(l => lanes[l] = []);
     const ci = timed.filter(arrives).map(e => { const s = t2m(e.start), sp = span(e), run = checkinOf(e) === "durchgehend";
-      return `<div class="ci" style="left:${Math.max(0,(s-30-DAY0)/DAYSPAN*100)}%;width:${30/DAYSPAN*100}%" title="Ankunft/Check-in ${m2t(s-30)}–${e.start}: Küche und Flur belebt (${esc(evName(e))})"></div>` + (run ? `<div class="ci run" style="left:${(s-DAY0)/DAYSPAN*100}%;width:${(Math.min(sp.e,DAY0+DAYSPAN)-s)/DAYSPAN*100}%" title="Check-in durchgehend ${e.start}–${m2t(sp.e)} (${esc(evName(e))})"></div>` : ""); }).join("");
+      return `<div class="ci" style="left:${Math.max(0,(s-CI_MIN-DAY0)/DAYSPAN*100)}%;width:${CI_MIN/DAYSPAN*100}%" title="Ankunft/Check-in ${m2t(s-CI_MIN)}–${e.start}: Küche und Flur belebt (${esc(evName(e))})"></div>` + (run ? `<div class="ci run" style="left:${(s-DAY0)/DAYSPAN*100}%;width:${(Math.min(sp.e,DAY0+DAYSPAN)-s)/DAYSPAN*100}%" title="Check-in durchgehend ${e.start}–${m2t(sp.e)} (${esc(evName(e))})"></div>` : ""); }).join("");
     for (const e of timed){
       const sp = span(e), t = theme(e), left = Math.max(0,(sp.s-DAY0)/DAYSPAN*100), width = Math.max(1.5,(Math.min(sp.e,DAY0+DAYSPAN)-Math.max(sp.s,DAY0))/DAYSPAN*100);
       const cls = `blk${t[1]?" dark":""} ${stCls(e)}${e.__draft ? " draft" : errNoZone(e.id)?" bad":accNoZone(e.id)?" accb":""}`;
@@ -611,7 +667,7 @@ function viewWoche(o){
               lanes[r].push(`<div class="cnx ${k}" style="left:${x}%" title="${tt}"></div>`); } } }
       }
       if (e.hybrid && e.room !== "online" && lanes["online"]) lanes["online"].push(`<button class="livem" data-ev="${e.id}" style="left:${left}%;width:${width}%;--c:${bg}" title="${esc("Live-Übertragung (hybrid): "+evName(e)+" · "+e.start+"–"+m2t(sp.e))}">● Live · ${esc(evName(e))}</button>`);
-      const fu = furnOf(e); if (fu && lanes["Workshopraum"]){ const um = UMB.get(e.id), pre = Math.max(setupOf(e), arrives(e) ? 30 : 0), ul = Math.max(0,(sp.s-pre-DAY0)/DAYSPAN*100);
+      const fu = furnOf(e); if (fu && lanes["Workshopraum"]){ const um = UMB.get(e.id), pre = Math.max(setupOf(e), arrives(e) ? CI_MIN : 0), ul = Math.max(0,(sp.s-pre-DAY0)/DAYSPAN*100);
         lanes["Workshopraum"].push(`<span class="fur${um ? " chg" : ""}" style="left:${um ? ul : left}%" title="${esc((um ? "Umbau vorher: " + um.from + " → " + fu + " (zuletzt: " + evName(um.prev) + ", " + fmt(um.prev.date) + ")" : "Möblierung: " + fu + " – kein Umbau nötig"))}">${um ? "⇄ " : ""}${FURN_SYM[fu]}</span>`); }
       const bk = backupOf(e); if (bk && lanes[bk]) lanes[bk].push(`<div class="bkp" style="left:${left}%;width:${width}%;--c:${bg}" title="${esc("Ausweichraum bei Schlechtwetter: "+evName(e))}">${esc(evName(e))}</div>`);
       { const lv = egLevel(e); if (lv >= 2 && e.room !== "Gesamtes EG") EG.filter(r => !rs.includes(r)).forEach(r => lanes[r].push(`<div class="excl${lv === 2 ? " ex2" : ""}" style="left:${left}%;width:${width}%" title="${esc(eglName(lv) + ": " + evName(e))}"></div>`)); }
@@ -678,8 +734,8 @@ function filtered(){
 }
 function viewListe(){
   const evs = filtered();
-  const rows = evs.map(e => { const [,w] = isoWeek(e.date); const sp = span(e); return `<tr class="click" data-ev="${e.id}"><td class="t">${fmtY(e.date)}</td><td class="t">${WD[wdOf(e.date)]} · KW ${w}</td><td class="t">${e.allDay?"ganzt.":esc(e.start||"–")}${sp&&!e.allDay?"–"+m2t(sp.e):""}</td><td><b>${esc(evName(e))}</b><div>${tbadge(e.theme)}</div></td><td>${esc(e.room||"–")}${e.hybrid?" · hybrid":""}</td><td>${stchip(e.status)}</td><td class="t">${e.kind==="va"?fmtY(S_(D(e.date)-56)):"–"}</td><td><div class="iss">${lvchips(e.id,4)}</div></td></tr>`; }).join("");
-  return `<div class="head"><h2>Terminliste ${qh(`<ul><li><b>Kommende | Vergangene</b>: Standard sind alle Termine ab heute. „Vergangene“ zeigt bereits durchgeführte Termine, die neuesten oben. Nach dem Neuladen steht die Liste wieder auf „Kommende“.</li><li>Filter nach Monat, Status, nur Termine mit Fehlern/Hinweisen und Freitextsuche (Name, Raum, Notiz).</li><li><b>Online bis</b> = Termin − 8 Wochen: bis dahin muss die Veranstaltung veröffentlicht sein (sonst Fehler). Ab 10 Wochen vorher Vorwarnung, solange der Status unter „fix“ liegt.</li><li>„CSV exportieren“ speichert die gefilterte Liste (kommende bzw. vergangene), z. B. zum Anlegen in WordPress.</li><li>Klick auf eine Zeile öffnet den Termin rechts, links erscheint der betroffene Tag mit allen Belegungen. Schließen oder Speichern führt zurück zur Terminliste an dieselbe Stelle.</li></ul>`)}</h2><div class="tools"><button class="btn" data-csv="1">CSV exportieren</button><button class="btn primary" data-new="1">+ Termin</button></div></div>
+  const rows = evs.map(e => { const [,w] = isoWeek(e.date); const sp = span(e); return `<tr class="click" data-ev="${e.id}"><td class="t">${fmtY(e.date)}</td><td class="t">${WD[wdOf(e.date)]} · KW ${w}</td><td class="t">${e.allDay?"ganzt.":esc(e.start||"–")}${sp&&!e.allDay?"–"+m2t(sp.e):""}</td><td><b>${esc(evName(e))}</b>${webLink(e)}<div>${tbadge(e.theme)}</div></td><td>${esc(e.room||"–")}${e.hybrid?" · hybrid":""}</td><td>${stchip(e.status)}</td><td class="t">${e.kind==="va"?fmtY(S_(D(e.date)-ON_DAYS)):"–"}</td><td><div class="iss">${lvchips(e.id,4)}</div></td></tr>`; }).join("");
+  return `<div class="head"><h2>Terminliste ${qh(`<ul><li><b>Kommende | Vergangene</b>: Standard sind alle Termine ab heute. „Vergangene“ zeigt bereits durchgeführte Termine, die neuesten oben. Nach dem Neuladen steht die Liste wieder auf „Kommende“.</li><li><b>↗</b> hinter dem Titel: Link auf die Veranstaltungsseite auf survivors-home.de (vom Website-Abgleich gesetzt oder im Termin eingetragen).</li><li>Filter nach Monat, Status, nur Termine mit Fehlern/Hinweisen und Freitextsuche (Name, Raum, Notiz).</li><li><b>Online bis</b> = Termin − ${ON_DAYS/7} Wochen: bis dahin muss die Veranstaltung veröffentlicht sein (sonst Fehler). Ab ${WARN_DAYS/7} Wochen vorher Vorwarnung, solange der Status unter „fix“ liegt.</li><li>„CSV exportieren“ speichert die gefilterte Liste (kommende bzw. vergangene), z. B. zum Anlegen in WordPress.</li><li>Klick auf eine Zeile öffnet den Termin rechts, links erscheint der betroffene Tag mit allen Belegungen. Schließen oder Speichern führt zurück zur Terminliste an dieselbe Stelle.</li></ul>`)}</h2><div class="tools"><button class="btn" data-csv="1">CSV exportieren</button><button class="btn primary" data-new="1">+ Termin</button></div></div>
   <div class="filters"><span class="seg" role="group" aria-label="Zeitraum"><button class="btn ${UI.lPast?"":"primary"}" data-lpast="0">Kommende</button><button class="btn ${UI.lPast?"primary":""}" data-lpast="1">Vergangene</button></span><select class="in" id="fMonth" aria-label="Monat"><option value="alle">Alle Monate</option>${MONTHS.map((m,i) => `<option value="${i+1}" ${+UI.month===i+1?"selected":""}>${m}</option>`).join("")}</select>
   <select class="in" id="fStatus" aria-label="Status"><option value="alle">Alle Status</option>${STATUS.map(s => `<option ${UI.status===s?"selected":""}>${s}</option>`).join("")}</select>
   <label><input type="checkbox" id="fIss" ${UI.onlyIssues?"checked":""}> nur mit Fehlern/Hinweisen</label>
@@ -711,9 +767,22 @@ function viewPruefung(){
   items.sort((a,b) => ord[a.l]-ord[b.l] || sortEv(a.e,b.e));
   const n = l => items.filter(g => g.l === l).length;
   const lab = {err:"Fehler",warn:"Hinweis",info:"Info"};
-  return `<div class="head"><h2>Prüfbericht ${qh(`<b>Prüfbericht</b><ul><li><b>Fehler</b> (rot) müssen gelöst werden, z. B. Raumkonflikt, Check-in überlagert, EG exklusiv belegt, Online-Frist verpasst (8 Wochen vorher nicht veröffentlicht).</li><li><b>Hinweise</b> (gelb) sind abzuwägen, z. B. ruhige Woche, Lärm durch Check-in, Ausweichraum belegt, Vorwarnung 10 Wochen vorher (Status unter „fix“).</li><li><b>Kernöffnungszeit</b> 10–21 Uhr: Beginn und Ende inkl. Nachlauf außerhalb davon ergibt einen Hinweis.</li><li><b>Umbauzeit Workshopraum</b>: wechselt die Möblierung zwischen zwei Veranstaltungen am selben Tag, sind mind. 2 Std. Umbau nötig (Abbau + Aufbau, wenn zusammen länger). Gezählt wird vom Ende inkl. Nachlauf bis zum Beginn des Check-ins der nächsten Veranstaltung – der Umbau muss vor dem Check-in fertig sein.</li><li><b>Absolute Ruhe im EG (Stufe 4)</b>: Auch eine parallele Veranstaltung „unterwegs“ darf nicht während der Ruhe-Veranstaltung enden – die zurückkehrenden Gäste betreten das EG.</li><li><b>Lungenkrebs</b>: Der Nachlauf einer vorherigen Veranstaltung darf sich mit dem Start der Selbsthilfegruppe überschneiden.</li><li><b>Andocken</b>: Backen direkt vor dem Caféhaus und Frag den Doc direkt nach dem Caféhaus – Check-in, Nachlauf und Abbau dürfen sich dabei überlagern und werden nicht gemeldet.</li><li><b>Infos</b> nur zur Kenntnis.</li><li><b>Zwei Termine, ein Konflikt</b>: Betrifft eine Meldung zwei Termine (z. B. Raumkonflikt), steht sie nur einmal hier und zählt nur einmal. Beide Termine stehen in der Zeile (↔); ein Klick auf einen Namen öffnet genau diesen Termin. „akzeptieren“ gilt für beide.</li><li>Klick auf eine Zeile öffnet den Termin; in der Wochenansicht ist die Fehlerstelle rot-weiß markiert.</li><li>Der rote Zähler am Reiter „Prüfung“ zeigt die Anzahl der Fehler; er verschwindet, wenn nur noch Hinweise oder Infos offen sind.</li><li><b>akzeptieren</b>: Konflikt bewusst hinnehmen – er zählt dann nicht mehr hier, im Jahresüberblick und im Zähler; in der Wochenansicht bleibt die Stelle gelb markiert. Unten unter „Akzeptierte Konflikte“ wieder aktivierbar. Ändert sich der Termin so, dass ein anderer Konflikt entsteht, erscheint er neu.</li><li>Eintrag anklicken: Termin öffnet sich rechts, links erscheint der betroffene Tag mit allen Belegungen. Schließen oder Speichern führt zurück zum Prüfbericht.</li></ul>`)}</h2><div class="sub">${n("err")} Fehler · ${n("warn")} Hinweise · ${n("info")} Infos</div></div>
+  return `<div class="head"><h2>Prüfbericht ${qh(`<b>Prüfbericht</b><ul><li><b>Fehler</b> (rot) müssen gelöst werden, z. B. Raumkonflikt, Check-in überlagert, EG exklusiv belegt, Online-Frist verpasst (${ON_DAYS/7} Wochen vorher nicht veröffentlicht).</li><li><b>Hinweise</b> (gelb) sind abzuwägen, z. B. ruhige Woche, Lärm durch Check-in, Ausweichraum belegt, Vorwarnung ${WARN_DAYS/7} Wochen vorher (Status unter „fix“).</li><li><b>Kernöffnungszeit</b> ${OPEN_FROM}–${OPEN_TO} Uhr: Beginn und Ende inkl. Nachlauf außerhalb davon ergibt einen Hinweis.</li><li><b>Umbauzeit Workshopraum</b>: wechselt die Möblierung zwischen zwei Veranstaltungen am selben Tag, sind mind. ${fmtHM(UMBAU_MIN)} h Umbau nötig (Abbau + Aufbau, wenn zusammen länger). Gezählt wird vom Ende inkl. Nachlauf bis zum Beginn des Check-ins der nächsten Veranstaltung – der Umbau muss vor dem Check-in fertig sein.</li><li><b>Absolute Ruhe im EG (Stufe 4)</b>: Auch eine parallele Veranstaltung „unterwegs“ darf nicht während der Ruhe-Veranstaltung enden – die zurückkehrenden Gäste betreten das EG.</li><li><b>Lungenkrebs</b>: Der Nachlauf einer vorherigen Veranstaltung darf sich mit dem Start der Selbsthilfegruppe überschneiden.</li><li><b>Andocken</b>: Backen direkt vor dem Caféhaus und Frag den Doc direkt nach dem Caféhaus – Check-in, Nachlauf und Abbau dürfen sich dabei überlagern und werden nicht gemeldet.</li><li><b>Infos</b> nur zur Kenntnis.</li><li><b>Zwei Termine, ein Konflikt</b>: Betrifft eine Meldung zwei Termine (z. B. Raumkonflikt), steht sie nur einmal hier und zählt nur einmal. Beide Termine stehen in der Zeile (↔); ein Klick auf einen Namen öffnet genau diesen Termin. „akzeptieren“ gilt für beide.</li><li>Klick auf eine Zeile öffnet den Termin; in der Wochenansicht ist die Fehlerstelle rot-weiß markiert.</li><li><b>Zähler am Reiter „Prüfung“</b>: Der rote Kreis zeigt die Anzahl der Fehler; ein gelber Kreis dahinter (ohne Zahl) zeigt, dass es außerdem Hinweise gibt. Sind alle Fehler gelöst, zeigt der gelbe Kreis die Anzahl der Hinweise. Infos und akzeptierte Konflikte zählen nicht.</li><li><b>akzeptieren</b>: Konflikt bewusst hinnehmen – er zählt dann nicht mehr hier, im Jahresüberblick und im Zähler; in der Wochenansicht bleibt die Stelle gelb markiert. Unten unter „Akzeptierte Konflikte“ wieder aktivierbar. Ändert sich der Termin so, dass ein anderer Konflikt entsteht, erscheint er neu.</li><li>Eintrag anklicken: Termin öffnet sich rechts, links erscheint der betroffene Tag mit allen Belegungen. Schließen oder Speichern führt zurück zum Prüfbericht.</li><li><b>Website-Abgleich</b> (zweimal täglich, Routine): ordnet Termine auf survivors-home.de den Planer-Terminen zu (Datum + Beginn, danach fest über die Website-ID), setzt den Link und hebt den Status auf „veröffentlicht“ (nie zurück; abgesagte bleiben unverändert). Hinweise bei anderem Tag oder Beginn auf der Website und bei „veröffentlicht“, das auf der Website fehlt. Titel werden nicht verglichen. Unten: Termine, die nur auf der Website stehen (werden nicht angelegt), und nicht eindeutige Zuordnungen.</li></ul>`)}</h2><div class="sub">${n("err")} Fehler · ${n("warn")} Hinweise · ${n("info")} Infos</div></div>
   ${items.length ? `<div class="ilist">${items.map(g => `<div class="iitem${g.m.length > 1 ? " pair" : ""}" data-ev="${g.e.id}"><span class="lv ${g.l}">${lab[g.l]}</span><span class="when t">${prWhen(g)}</span><div class="what"><b>${prText(g)}</b><div>${prEvs(g, true)}</div></div>${g.l !== "info" ? `<button class="btn ghost sm" data-accg='${esc(prMembers(g))}' data-on="1" title="Konflikt akzeptieren${g.m.length > 1 ? " (gilt für beide Termine)" : ""}">akzeptieren</button>` : ""}</div>`).join("")}</div>` : `<div class="empty">Keine Auffälligkeiten.</div>`}
+  ${wsSection()}
   ${accd.length ? `<details class="sec accsec"><summary>Akzeptierte Konflikte (${accd.length})</summary><div class="ilist">${accd.map(g => `<div class="iitem${g.m.length > 1 ? " pair" : ""}" data-ev="${g.e.id}"><span class="lv warn">akzeptiert</span><span class="when t">${prWhen(g)}</span><div class="what"><b>${prText(g)}</b><div>${prEvs(g, false)}</div></div><button class="btn ghost sm" data-accg='${esc(prMembers(g))}' data-on="0">wieder aktivieren</button></div>`).join("")}</div></details>` : ""}`;
+}
+/* v112: Website-Abgleich im Prüfbericht – Stand, nur auf der Website, nicht eindeutig (nur ab heute) */
+function wsSection(){
+  if (!S.wsLoaded) return "";
+  const w = S.websync || {}, today = todayStr(), fut = a => (a || []).filter(x => (x.at || "").slice(0, 10) >= today);
+  const only = fut(w.onlyWeb), unc = fut(w.unclear);
+  const when = x => `${WD[wdOf(x.at.slice(0, 10))]} ${fmtY(x.at.slice(0, 10))}<br>${esc(x.at.slice(11))}`;
+  const lnk = x => /^https?:\/\//.test(x.url || "") ? `<a class="clink" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title || "ohne Titel")} ↗</a>` : esc(x.title || "");
+  const stand = w.okAt ? `Website-Abgleich: zuletzt ${wsWhen(w.okAt)} · ${w.n || 0} Termine auf der Website` + (w.ok === false && w.err ? ` · letzter Lauf fehlgeschlagen (${wsWhen(w.at)})` : "") : "Website-Abgleich: noch kein erfolgreicher Lauf";
+  return `<div class="notes wsstand">${stand}</div>
+  ${unc.length ? `<details class="sec accsec" open><summary>Website: nicht eindeutig zugeordnet (${unc.length})</summary><div class="ilist">${unc.map(x => `<div class="iitem"><span class="lv warn">offen</span><span class="when t">${when(x)}</span><div class="what"><b>${lnk(x)}</b><div>passt zu: ${(x.cands || []).map(id => S.events[id] ? `<span class="prev" data-ev="${esc(id)}">${esc(evName(S.events[id]))}</span>` : esc(id)).join(" · ")} – Link im richtigen Termin eintragen</div></div></div>`).join("")}</div></details>` : ""}
+  ${only.length ? `<details class="sec accsec"><summary>Nur auf der Website, nicht im Planer (${only.length})</summary><div class="ilist">${only.map(x => `<div class="iitem"><span class="lv info">Website</span><span class="when t">${when(x)}</span><div class="what"><b>${lnk(x)}</b></div></div>`).join("")}</div></details>` : ""}`;
 }
 
 /* ---------- Ansicht: Reihen ---------- */
@@ -775,7 +844,7 @@ function quickTimes(){
   const inp = (s,f,step) => durPair(`class="qe" step="${step}" data-qs="${s.id}" data-qf="${f}"`, s[f], lab[f]+" "+s.name);
   const rows = act.map(s => { const st = t2m(s.start||""), end = st != null && s.dur ? st + +s.dur : null;
     return `<tr${s.after == null || s.after === "" ? ' class="qopen"' : ""}><td><b>${esc(s.name)}</b><div class="notes">${esc(s.form||"")} · ${esc(s.room||"")}</div></td><td class="t">${esc(s.start||"–")}</td><td>${inp(s,"dur",15)}</td><td>${inp(s,"setup",15)}</td><td>${inp(s,"after",5)}</td><td>${inp(s,"teardown",15)}</td><td class="t">${end!=null?m2t(end)+(+s.after?" → "+m2t(end + +s.after):""):"–"}</td></tr>`; }).join("");
-  return `<div class="head"><h2>Zeiten schnell erfassen ${qh(`<ul><li>Jede Änderung wird sofort gespeichert.</li><li><b>Nachlauf</b> = Zeit nach dem offiziellen Ende, in der Gäste noch im Raum sind (blockiert den Raum, zählt nicht zur Veranstaltungszeit).</li><li>Leeres Aufbau-Feld = Standard (5 h bei Hybrid, sonst 0).</li><li>Ganztägige Termine belegen 9–21 Uhr; Aufbau, Nachlauf und Abbau werden bei ihnen nicht gerechnet.</li><li>Hell hinterlegt: Reihe noch ohne Nachlauf-Angabe.</li></ul>`)}</h2><div class="tools"><button class="btn" data-quick="0">Zurück zur Übersicht</button></div><div class="sub">Noch ohne Nachlauf-Angabe: <b>${open}</b> von ${act.length} aktiven Reihen (hell hinterlegt).</div></div>
+  return `<div class="head"><h2>Zeiten schnell erfassen ${qh(`<ul><li>Jede Änderung wird sofort gespeichert.</li><li><b>Nachlauf</b> = Zeit nach dem offiziellen Ende, in der Gäste noch im Raum sind (blockiert den Raum, zählt nicht zur Veranstaltungszeit).</li><li>Leeres Aufbau-Feld = Standard (${fmtHM(HYB_SETUP)} h bei Hybrid, sonst 0).</li><li>Ganztägige Termine belegen 9–21 Uhr; Aufbau, Nachlauf und Abbau werden bei ihnen nicht gerechnet.</li><li>Hell hinterlegt: Reihe noch ohne Nachlauf-Angabe.</li></ul>`)}</h2><div class="tools"><button class="btn" data-quick="0">Zurück zur Übersicht</button></div><div class="sub">Noch ohne Nachlauf-Angabe: <b>${open}</b> von ${act.length} aktiven Reihen (hell hinterlegt).</div></div>
   <div class="scroll"><table class="list"><thead><tr><th>Reihe</th><th>Start</th><th>Dauer</th><th>Aufbau</th><th>Nachlauf</th><th>Abbau</th><th>Ende → inkl. Nachlauf</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
@@ -789,29 +858,90 @@ function viewRefStamm(seg, sender){
   ${rs.length ? `<div class="scroll"><table class="list"><thead><tr><th>Name</th><th>Reihen</th><th>Verfügbarkeit</th><th>Kontakt</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty">Noch keine Referenten angelegt.</div>`}`;
 }
 
-/* ---------- Ansicht: Abwesenheiten ---------- */
+/* ---------- Einstellungen: Abwesenheiten im Team ---------- */
+const absHit = a => evList().filter(e => e.kind==="va" && e.status !== "abgesagt" && a.from <= e.date && e.date <= (a.to||a.from));
+const absPer = a => `${fmtY(a.from)}${a.to&&a.to!==a.from?" – "+fmtY(a.to):""}`;
+const absSorted = () => Object.values(S.absences).sort((a,b) => (a.from||"").localeCompare(b.from||""));
 function viewAbwesend(){
-  const all = Object.values(S.absences).sort((a,b) => (a.from||"").localeCompare(b.from||""));
-  const as = all.filter(a => !a.block), sp = all.filter(a => a.block);
-  const hitOf = a => evList().filter(e => e.kind==="va" && e.status !== "abgesagt" && a.from <= e.date && e.date <= (a.to||a.from));
-  const per = a => `${fmtY(a.from)}${a.to&&a.to!==a.from?" – "+fmtY(a.to):""}`;
-  const rows = as.map(a => { const hit = hitOf(a); return `<tr><td><b>${esc(a.person)}</b></td><td class="t">${per(a)}</td><td>${esc(a.note||"")}</td><td>${hit.length} Termine${hit.some(e => e.hybrid)?' · <span class="lv warn">davon hybrid</span>':""}</td><td><button class="btn ghost" data-delabs="${a.id}">Entfernen</button></td></tr>`; }).join("");
-  const srows = sp.map(a => { const hit = hitOf(a); return `<tr><td class="t">${WD[wdOf(a.from)]} ${per(a)}</td><td>${esc(a.note||"")}</td><td>${hit.length ? `<span class="lv err">${hit.length} Termine liegen darauf</span>` : "frei"}</td><td><button class="btn ghost" data-delabs="${a.id}">Entfernen</button></td></tr>`; }).join("");
-  return `<div class="head"><h2>Abwesenheiten und Sperrtage ${qh(`<b>Sperrtage</b><ul><li>Ganze Tage, an denen keine Veranstaltung stattfinden darf (auch Zeiträume).</li><li>Jeder Termin an einem Sperrtag ist ein Fehler; die Jahresplanung lässt diese Tage frei.</li><li>Im Jahresüberblick wie ein Feiertag hinterlegt, in der Wochenansicht als rotes Schild am Tag.</li></ul><b>Abwesenheiten im Team</b><ul><li>Erscheinen als Info am betroffenen Termin.</li><li>Ist Sebastian abwesend, meldet die Prüfung jede Hybrid-Veranstaltung als Fehler.</li></ul>`)}</h2></div>
-  <h3 class="sh">Sperrtage</h3>
-  <form class="filters" id="blkForm"><input class="in" type="date" id="bFrom" required aria-label="Datum (von)"><input class="in" type="date" id="bTo" aria-label="bis (optional)"><input class="in" id="bNote" placeholder="Anlass (optional)"><button class="btn primary" type="submit">+ Sperrtag</button></form>
-  ${sp.length ? `<div class="scroll"><table class="list"><thead><tr><th>Datum</th><th>Anlass</th><th>Termine</th><th></th></tr></thead><tbody>${srows}</tbody></table></div>` : `<div class="empty">Keine Sperrtage eingetragen.</div>`}
-  <h3 class="sh">Abwesenheiten im Team</h3>
+  const as = absSorted().filter(a => !a.block);
+  const rows = as.map(a => { const hit = absHit(a); return `<tr><td><b>${esc(a.person)}</b></td><td class="t">${absPer(a)}</td><td>${esc(a.note||"")}</td><td>${hit.length} Termine${hit.some(e => e.hybrid)?' · <span class="lv warn">davon hybrid</span>':""}</td><td><button class="btn ghost" data-delabs="${a.id}">Entfernen</button></td></tr>`; }).join("");
+  return `${setNav()}<div class="head"><h2>Abwesenheiten im Team ${qh(`<b>Abwesenheiten im Team</b><ul><li>Erscheinen als Info am betroffenen Termin.</li><li>Ist Sebastian abwesend, meldet die Prüfung jede Hybrid-Veranstaltung als Fehler.</li><li>Sperrtage (keine Veranstaltung im Haus) stehen unter „Kalender“.</li></ul>`)}</h2></div>
   <form class="filters" id="absForm"><input class="in" id="aPerson" list="teamList" placeholder="Person" required><datalist id="teamList"><option>Sebastian</option><option>Kati</option></datalist><input class="in" type="date" id="aFrom" required aria-label="von"><input class="in" type="date" id="aTo" aria-label="bis"><input class="in" id="aNote" placeholder="Anlass (optional)"><button class="btn primary" type="submit">+ Abwesenheit</button></form>
   ${as.length ? `<div class="scroll"><table class="list"><thead><tr><th>Person</th><th>Zeitraum</th><th>Anlass</th><th>Betroffene Termine</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty">Noch keine Abwesenheiten eingetragen.</div>`}`;
 }
+/* ---------- Einstellungen: Kalender (Schulferien, Feiertage, Sperrtage, Wochenstatus) ---------- */
+const wkMon = k => { const y = +k.slice(0,4), w = +k.slice(6), j4 = D(y + "-01-04"); return S_(j4 - (wdOf(y + "-01-04") + 6) % 7 + (w - 1) * 7); };
+const wkLabel = k => { const m = wkMon(k); return `KW ${+k.slice(6)}/${k.slice(0,4)} · ${fmt(m)}–${fmtY(S_(D(m) + 6))}`; };
+function viewKalender(){
+  const st = S.settings || {}, own = Array.isArray(st.ferien);
+  const fer = FERIEN.slice().sort((a,b) => a[0].localeCompare(b[0])), ex = (Array.isArray(st.feierExtra) ? st.feierExtra : []).slice().sort((a,b) => a[0].localeCompare(b[0]));
+  const ferRows = fer.map(f => `<tr><td class="t">${fmtY(f[0])}${f[1] !== f[0] ? " – " + fmtY(f[1]) : ""}</td><td>${esc(f[2] || "")}</td><td><button class="btn ghost" data-ferdel='${esc(JSON.stringify(f))}'>Entfernen</button></td></tr>`).join("");
+  const auto = FEIER_YEARS().map(y => `<tr><td class="t"><b>${y}</b></td><td>${Object.entries(feierBerlin(y)).map(([d, n]) => `<span class="cfgday">${WD[wdOf(d)]} ${fmt(d)} ${esc(n)}</span>`).join("")}</td></tr>`).join("");
+  const exRows = ex.map(f => `<tr><td class="t">${WD[wdOf(f[0])]} ${fmtY(f[0])}</td><td>${esc(f[1] || "")}</td><td><button class="btn ghost" data-fxdel="${esc(f[0])}">Entfernen</button></td></tr>`).join("");
+  const sp = absSorted().filter(a => a.block);
+  const srows = sp.map(a => { const hit = absHit(a); return `<tr><td class="t">${WD[wdOf(a.from)]} ${absPer(a)}</td><td>${esc(a.note||"")}</td><td>${hit.length ? `<span class="lv err">${hit.length} Termine liegen darauf</span>` : "frei"}</td><td><button class="btn ghost" data-delabs="${a.id}">Entfernen</button></td></tr>`; }).join("");
+  const wks = Object.entries(S.weeks || {}).filter(([, v]) => v === "ruhig" || v === "pause").sort((a,b) => a[0].localeCompare(b[0]));
+  const wsel = (k, v) => `<select class="in" data-wksel="${k}" aria-label="Status ${esc(wkLabel(k))}">${opt([["belebt","belebt (entfernen)"],["ruhig","ruhig"],["pause","Programmpause"]], v)}</select>`;
+  const wrow = ([k, v]) => `<tr><td class="t">${wkLabel(k)}</td><td>${wsel(k, v)}</td></tr>`, tw = weekKey(todayStr());
+  const wNext = wks.filter(([k]) => k >= tw), wPast = wks.filter(([k]) => k < tw);
+  const wtab = l => `<div class="scroll"><table class="list"><thead><tr><th>Woche</th><th>Status</th></tr></thead><tbody>${l.map(wrow).join("")}</tbody></table></div>`;
+  const help = `<b>Kalender</b><ul><li><b>Schulferien</b> (Berlin): erscheinen im Jahresüberblick und in der Wochenansicht als Hinweis; Quelle: Senatsverwaltung für Bildung (Ferientermine). Ändern = Entfernen und neu eintragen.</li><li><b>Feiertage</b>: gesetzliche Feiertage in Berlin werden je Jahr automatisch berechnet (${FEIER_YEARS()[0]}–${FEIER_YEARS()[2]}). Einmalige oder zusätzliche Feiertage unter „Zusätzliche Feiertage“. Termine an Feiertagen sind ein Fehler.</li><li><b>Sperrtage</b>: Tage ohne Veranstaltung im Haus (auch Zeiträume). Jeder Termin daran ist ein Fehler; im Jahresüberblick wie ein Feiertag, in der Wochenansicht als rotes Schild.</li><li><b>Ruhige Wochen und Programmpausen</b>: dieselben Angaben wie im Jahresüberblick (Klick auf die Wochenspalte); hier als Liste. Ruhige Wochen: nur Reihen mit „ruhige Woche: ja“, sonst Hinweis. Programmpause: keine Termine.</li><li>Änderungen gelten sofort für alle (Prüfung, Jahresüberblick, Wochenansicht, Team-Seite, öffentliche Seite ab dem nächsten Lauf der Routine).</li></ul>`;
+  return `${setNav()}<div class="head"><h2>Kalender ${qh(help)}</h2></div>
+  <h3 class="sh">Schulferien Berlin</h3>
+  <form class="filters" id="ferForm"><input class="in" type="date" id="fFrom" required aria-label="von"><input class="in" type="date" id="fTo" aria-label="bis (optional)"><input class="in" id="fName" placeholder="Name, z. B. Sommerferien" required><button class="btn primary" type="submit">+ Ferien</button>${own ? `<button class="btn ghost" type="button" data-ferdef="1" title="Eigene Liste verwerfen, Standardliste von 2026/27 verwenden">Standardliste</button>` : ""}</form>
+  ${fer.length ? `<div class="scroll"><table class="list"><thead><tr><th>Zeitraum</th><th>Name</th><th></th></tr></thead><tbody>${ferRows}</tbody></table></div>` : `<div class="empty">Keine Schulferien eingetragen.</div>`}
+  <h3 class="sh">Feiertage Berlin (automatisch)</h3>
+  <div class="scroll"><table class="list cfgfeier"><tbody>${auto}</tbody></table></div>
+  <h3 class="sh">Zusätzliche Feiertage</h3>
+  <form class="filters" id="fxForm"><input class="in" type="date" id="xDate" required aria-label="Datum"><input class="in" id="xName" placeholder="Name, z. B. 80. Jahrestag Kriegsende" required><button class="btn primary" type="submit">+ Feiertag</button></form>
+  ${ex.length ? `<div class="scroll"><table class="list"><thead><tr><th>Datum</th><th>Name</th><th></th></tr></thead><tbody>${exRows}</tbody></table></div>` : `<div class="empty">Keine zusätzlichen Feiertage.</div>`}
+  <h3 class="sh">Sperrtage</h3>
+  <form class="filters" id="blkForm"><input class="in" type="date" id="bFrom" required aria-label="Datum (von)"><input class="in" type="date" id="bTo" aria-label="bis (optional)"><input class="in" id="bNote" placeholder="Anlass (optional)"><button class="btn primary" type="submit">+ Sperrtag</button></form>
+  ${sp.length ? `<div class="scroll"><table class="list"><thead><tr><th>Datum</th><th>Anlass</th><th>Termine</th><th></th></tr></thead><tbody>${srows}</tbody></table></div>` : `<div class="empty">Keine Sperrtage eingetragen.</div>`}
+  <h3 class="sh">Ruhige Wochen und Programmpausen</h3>
+  <form class="filters" id="wkForm"><input class="in" type="date" id="wDate" required aria-label="ein Tag der Woche"><select class="in" id="wVal" aria-label="Status">${opt([["ruhig","ruhig"],["pause","Programmpause"]], "ruhig")}</select><button class="btn primary" type="submit">+ Woche</button></form>
+  ${wNext.length ? wtab(wNext) : `<div class="empty">Keine kommenden ruhigen Wochen oder Pausen eingetragen.</div>`}
+  ${wPast.length ? `<details class="sec"><summary>Vergangene Wochen (${wPast.length})</summary>${wtab(wPast)}</details>` : ""}`;
+}
+/* ---------- Einstellungen: Zeiten & Fristen, Kontakte & Adressen ---------- */
+const SET_F = {
+  zeiten: [["ci","Check-in vor Beginn","Min","number","0","120","5","Ankunft der Gäste: Küche und Flur belebt; Grundlage für Lärm- und Überlagerungsprüfung"],
+    ["openFrom","Kernöffnungszeit von","Uhr","time","","","","Beginn außerhalb ergibt einen Hinweis; bestimmt auch die Zeitachse der Wochenansicht"],
+    ["openTo","Kernöffnungszeit bis","Uhr","time","","","","Ende inkl. Nachlauf später ergibt einen Hinweis"],
+    ["umbau","Umbauzeit Workshopraum","Min","number","0","480","15","Mindestzeit bei Wechsel der Möblierung am selben Tag"],
+    ["hybSetup","Aufbau bei Hybrid","Std","number","0","12","0.5","gilt, wenn Termin und Reihe keinen eigenen Aufbau haben"],
+    ["onlineWeeks","Online-Frist","Wochen vorher","number","1","26","1","bis dahin veröffentlicht, sonst Fehler"],
+    ["warnWeeks","Vorwarnung","Wochen vorher","number","1","30","1","ab dann Hinweis, solange der Status unter „fix“ liegt; muss größer als die Online-Frist sein"],
+    ["nachfass","Nachfassen bei Referenten","Tage","number","1","60","1","ohne Antwort nach so vielen Tagen: „nachfassen“"],
+    ["altStep","Raster „Mögliche Zeiten“","Min","number","15","60","15","Beginnzeiten in diesen Schritten (15, 30 oder 60)"],
+    ["wsMaxH","Warnung Website-Abgleich","Std","number","6","240","1","Warnleiste, wenn der Abgleich länger nicht lief (nur Werktagsstunden)"]],
+  kontakte: [["invLoc","Ort in der Termineinladung","","text","","","","Hybrid: Ort der Outlook-Einladung"],
+    ["sebMail","E-Mail Sebastian (Einladung)","","email","","","","wird bei Hybrid automatisch eingeladen, wenn bei Sebastian keine E-Mail hinterlegt ist"],
+    ["noteMail","Adresse für Notizen (Team-Seite)","","email","","","","Notiz-Knopf im Detailblatt der Team-Seite"],
+    ["belegUrl","Link Belegungsseite","","url","","","","in Mails an Referenten"],
+    ["teamUrl","Link Team-Seite","","url","","","","unter Sicherung → Team-Seite fürs Handy"]]};
+function setForm(kind){
+  const st = S.settings || {};
+  const fld = ([k, l, u, ty, mn, mx, sp, h]) => `<label>${esc(l)}${u ? ` (${esc(u)})` : ""} <span class="hint">${esc(h)} · Standard: ${esc(String(SET_DEF[k]))}${st[k] != null && st[k] !== "" && String(st[k]) !== String(SET_DEF[k]) ? " · <b>geändert</b>" : ""}</span><input class="in" name="${k}" type="${ty}"${mn ? ` min="${mn}"` : ""}${mx ? ` max="${mx}"` : ""}${sp ? ` step="${sp}"` : ""} value="${esc(String(setv(k)))}"></label>`;
+  return `<form class="form cfg" id="setForm" data-kind="${kind}">${SET_F[kind].map(fld).join("")}<div class="full cfgbtn"><button class="btn primary" type="submit">Speichern</button> <button class="btn ghost" type="button" data-setdef="${kind}">Alle auf Standard</button></div></form>`;
+}
+function viewZeiten(){
+  const help = `<b>Zeiten & Fristen</b><ul><li>Gelten sofort für alle Prüfungen und Ansichten (auch Team-Seite nach dem nächsten Lauf der Routine).</li><li>Leeres Feld = Standard.</li><li>Achtung: Ändern sich Check-in oder Kernöffnungszeit, ändern sich auch die Texte der betroffenen Prüfhinweise – bereits akzeptierte Konflikte dieser Art erscheinen dann wieder.</li></ul>`;
+  return `${setNav()}<div class="head"><h2>Zeiten & Fristen ${qh(help)}</h2></div>${setForm("zeiten")}`;
+}
+function viewKontakte(){
+  const help = `<b>Kontakte & Adressen</b><ul><li>Adressen und Links, die der Planer in Mails, Einladungen und auf der Team-Seite verwendet.</li><li>Leeres Feld = Standard.</li></ul>`;
+  return `${setNav()}<div class="head"><h2>Kontakte & Adressen ${qh(help)}</h2></div>${setForm("kontakte")}`;
+}
 
-/* Roter Zähler am Reiter „Prüfung“ = Anzahl Fehler im Prüfbericht */
+/* Zähler am Reiter „Prüfung“: rot = Anzahl Fehler; gelb angeschnitten dahinter = es gibt Hinweise; ohne Fehler gelb mit Anzahl Hinweise */
 function errBadge(){
   const b = document.querySelector('#tabs [data-view="pruefung"]'); if (!b) return;
-  const n = prGroups().filter(g => g.open && g.l === "err").length;
-  b.innerHTML = "Prüfung" + (n ? `<span class="nbadge" title="${n} Fehler im Prüfbericht">${n > 99 ? "99+" : n}</span>` : "");
-  b.setAttribute("aria-label", n ? `Prüfung, ${n} Fehler` : "Prüfung");
+  const og = prGroups().filter(g => g.open), n = og.filter(g => g.l === "err").length, w = og.filter(g => g.l === "warn").length;
+  const cap = x => x > 99 ? "99+" : x, wt = `${w} ${w === 1 ? "Hinweis" : "Hinweise"}`;
+  b.innerHTML = "Prüfung" + (n ? (w ? `<span class="nbadge hint peek" aria-hidden="true"></span>` : "") + `<span class="nbadge" title="${n} Fehler${w ? " · " + wt : ""} im Prüfbericht">${cap(n)}</span>`
+    : w ? `<span class="nbadge hint" title="${wt} im Prüfbericht">${cap(w)}</span>` : "");
+  b.setAttribute("aria-label", "Prüfung" + (n ? `, ${n} Fehler` : "") + (w ? `, ${wt}` : ""));
   const rb = document.querySelector('#tabs [data-view="referenten"]'); if (!rb) return;
   const k = personRefs().filter(r => ["neu","late","ans"].includes(personInfo(r).state)).length;
   rb.innerHTML = "Referenten" + (k ? `<span class="nbadge" style="background:var(--violet-2)" title="${k} Personen brauchen einen Schritt (neu anzuschreiben, nachfassen, Antwort auswerten)">${k > 99 ? "99+" : k}</span>` : "");
@@ -834,7 +964,7 @@ const RTYPES = {verf:"Verfügbarkeit (Vorabfrage)", term:"Terminabfrage (Vorplan
 /* Terminabfrage: nur Termine, die zur Besprechung stehen (Status Idee, Option, angefragt; keine festen Termine) */
 const DISCUSS = ["Idee","Option","angefragt"];
 const rdType = rd => (rd && rd.type) || "verf";
-const NACHFASS_TAGE = 10;
+let NACHFASS_TAGE = 10; /* Einstellungen */
 const senderName = () => UI.sender || "";
 const SENDER_IDS = {Kati:"kati-burchart", Sebastian:"sebastian-roeder"};
 const sigName = sn => { if (!sn) return "[Name]"; const r = S.referents[SENDER_IDS[sn]]; return r && r.name ? r.name.replace(/^((Dr|Prof|Dipl)\.?(-\w+\.?)?\s+)+/i, "") : sn; };
@@ -926,7 +1056,7 @@ function termNachfass(r, sender){
 }
 /* Anrede: „Liebe Sabine“ / „Lieber Armin“ – Vornamen mit männlicher Anrede */
 const MALE = /^(Armin|Günter|Guenter|Thomas|Manuel|Jörg|Joerg|Johann|Marco|Tobias|Sebastian|Uwe)$/i;
-const BELEG_URL = "https://survivors-home.github.io/belegung/";
+let BELEG_URL = "https://belegung.survivors-home.de/"; /* Einstellungen */
 /* Mailtext je Rundentyp */
 const roundText = (r, sender, rd, remind) => rdType(rd) === "term" ? (remind ? termNachfass(r, sender) : termText(r, sender)) : (remind ? nachfassText(r, sender) : verfText(r, sender));
 const msgsOf = (rid, roundId) => Object.values(S.msgs||{}).filter(m => m.ref === rid && (!roundId || m.round === roundId)).sort((a,b) => (a.at||"").localeCompare(b.at||""));
@@ -1330,16 +1460,18 @@ function availIssues(e, r, st, en, add){
 }
 
 /* ---------- Rendern ---------- */
-const VIEWS = {jahr:viewJahr, woche:viewWoche, liste:viewListe, pruefung:viewPruefung, reihen:viewReihen, referenten:viewReferenten, abwesend:viewAbwesend, anfragen:viewReferenten, sicherung:viewSicherung};
+const VIEWS = {jahr:viewJahr, woche:viewWoche, liste:viewListe, pruefung:viewPruefung, reihen:viewReihen, referenten:viewReferenten, abwesend:viewAbwesend, anfragen:viewReferenten, sicherung:viewSicherung, kalender:viewKalender, zeiten:viewZeiten, kontakte:viewKontakte};
 let rq = 0;
 function render(){
   { const tip = document.getElementById("qtip"); if (tip) tip.hidden = true; const zp = document.getElementById("zpop"); if (zp) zp.hidden = true; } cancelAnimationFrame(rq); rq = requestAnimationFrame(() => {
   recompute(); renderKpis(); errBadge();
-  document.querySelectorAll("#tabs button").forEach(b => { if (b.dataset.view === UI.view) b.setAttribute("aria-current","page"); else b.removeAttribute("aria-current"); });
+  const curTab = isSetView(UI.view) ? "einstellungen" : UI.view;
+  document.querySelectorAll("#tabs button").forEach(b => { if (b.dataset.view === curTab) b.setAttribute("aria-current","page"); else b.removeAttribute("aria-current"); });
   document.body.classList.toggle("vjahr", UI.view === "jahr" && !UI.mob);
   if (UI.view === "woche" && !UI.dayOnly && UI.week){ try { localStorage.setItem("shp-week", UI.week); } catch(e){} }
   const y = window.scrollY;
   $("#app").innerHTML = S.loaded ? (UI.mob ? viewMobil() : VIEWS[UI.view]()) : $("#app").innerHTML;
+  { const wb = $("#wsslot"), h = S.loaded && !UI.mob ? wsBar() : ""; if (wb){ wb.hidden = !h; wb.innerHTML = h; } }
   { const hs = $("#hslot"), on = S.loaded && UI.view === "jahr" && !UI.mob; hs.hidden = !on; hs.innerHTML = on ? UI.yHead || "" : "";
     if (on){ const a = $("#app .ybody"), b = hs.querySelector(".yhs"); if (a && b){ b.scrollLeft = a.scrollLeft; a.onscroll = () => { b.scrollLeft = a.scrollLeft; }; } } }
   window.scrollTo(0, y);
@@ -1359,7 +1491,14 @@ function markSel(){
   els.forEach(x => x.classList.add("sel")); if (cell) cell.classList.add("sel");
   if (UI.scrollSel){ UI.scrollSel = false; const t = els[0] || cell; if (t){ t.scrollIntoView({block:"center", inline:"center", behavior:"smooth"}); } }
 }
-function go(view){ UI.dayOnly = null; UI.view0 = null; if (view === "jahr") UI.yRestore = true; UI.view = view; try { localStorage.setItem("shp-view", view); } catch(e){} window.scrollTo(0,0); render(); }
+/* Reiter „Einstellungen“: Unterreiter sind eigene Ansichten; der Reiter öffnet den zuletzt benutzten */
+const SET_VIEWS = [["kalender","Kalender"],["zeiten","Zeiten & Fristen"],["kontakte","Kontakte & Adressen"],["abwesend","Abwesenheiten"],["sicherung","Sicherung"]];
+const isSetView = v => SET_VIEWS.some(x => x[0] === v);
+function setNav(){ return `<nav class="setnav" aria-label="Einstellungen"><span class="seg" role="group">${SET_VIEWS.map(([k, l]) => `<button class="btn ${UI.view === k ? "primary" : ""}" data-view="${k}"${UI.view === k ? ' aria-current="page"' : ""}>${l}</button>`).join("")}</span></nav>`; }
+function go(view){
+  if (view === "einstellungen"){ let l = null; try { l = localStorage.getItem("shp-eset"); } catch(e){} view = isSetView(l) ? l : SET_VIEWS[0][0]; }
+  if (isSetView(view)){ try { localStorage.setItem("shp-eset", view); } catch(e){} }
+  UI.dayOnly = null; UI.view0 = null; if (view === "jahr") UI.yRestore = true; UI.view = view; try { localStorage.setItem("shp-view", view); } catch(e){} window.scrollTo(0,0); render(); }
 
 /* ---------- Schreiben ---------- */
 async function put(col, id, data){
@@ -1370,6 +1509,14 @@ async function put(col, id, data){
 }
 async function del(col, id){ if (OFFLINE){ if (S[col]) delete S[col][id]; offTouch(); return; } if (!db) return; try { await db.collection(col).doc(id).delete(); } catch(e){ toast("Löschen fehlgeschlagen"); } }
 const newId = col => db ? db.collection(col).doc().id : "x" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+/* Einstellungen speichern (meta/settings): leere Werte entfallen (= Standard) */
+async function saveSettings(patch, msg){
+  const nx = Object.assign({}, S.settings || {}, patch);
+  Object.keys(nx).forEach(k => { if (nx[k] === null || nx[k] === undefined || nx[k] === "") delete nx[k]; });
+  nx.set = localIso(); S.settings = nx; applySettings(); render();
+  if (!db){ offTouch(); if (msg) toast(msg); return true; }
+  try { await db.doc("meta/settings").set(nx); if (msg) toast(msg); return true; } catch(e){ toast("Einstellungen nicht gespeichert – bitte erneut versuchen"); return false; }
+}
 async function setWeek(key, val){
   S.weeks[key] = val; render();
   if (!db){ offTouch(); return; }
@@ -1524,11 +1671,17 @@ function serNav(e){
   const prev = list[i-1], next = list[i+1], lab = x => x ? WD[wdOf(x.date)]+" "+fmt(x.date) : "";
   return `<div class="sernav"><button type="button" class="btn" data-evnav="${prev?prev.id:""}" ${prev?"":"disabled"} title="${esc(prev?"Vorheriger Termin: "+lab(prev):"Kein früherer Termin")}">← ${esc(lab(prev)||"vorheriger")}</button><span class="pos"><b>${i+1}</b> von ${list.length}<br><span class="notes">${esc(s.name)}</span></span><button type="button" class="btn" data-evnav="${next?next.id:""}" ${next?"":"disabled"} title="${esc(next?"Nächster Termin: "+lab(next):"Kein späterer Termin")}">${esc(lab(next)||"nächster")} →</button><button type="button" class="btn ghost" data-openser="${s.id}">Reihe bearbeiten</button></div>`;
 }
+/* v112: Angaben der Website zum Termin (nur Anzeige) */
+function webInfo(e){
+  const w = e.web; if (!w || !w.url) return "";
+  const at = w.at ? WD[wdOf(w.at.slice(0, 10))] + " " + fmtY(w.at.slice(0, 10)) + " " + w.at.slice(11) : "";
+  return `<div class="full notes webinfo">${w.src === "manuell" ? "manuell eingetragen" : "automatisch zugeordnet"}${w.title ? " · „" + esc(w.title) + "“" : ""}${at ? " · Website: " + esc(at) : ""} · <a class="clink" href="${esc(w.url)}" target="_blank" rel="noopener">öffnen ↗</a></div>`;
+}
 function evForm(e){
   const ser = serOf(e), has = v => v != null && v !== "";
   const fromSer = (v, fmtv) => ser.id ? (has(v) ? "leer = aus Reihe: " + (fmtv ? fmtv(v) : v) : "leer = aus Reihe (nicht gesetzt)") : "";
   const hm = v => fmtHM(+v) + " h";
-  const ciLab = {vorher:"30 Min vor Beginn", durchgehend:"durchgehend", keiner:"kein Check-in"};
+  const ciLab = {vorher:CI_MIN + " Min vor Beginn", durchgehend:"durchgehend", keiner:"kein Check-in"};
   const serCi = ser.checkin || (isBeratung(Object.assign({}, e, {kind:"va"})) ? "durchgehend" : "vorher");
   const dupOf = e.__dup && S.events[e.__dup];
   const dupBar = e.__dup ? `<div class="dupbar"><b>Duplikat – noch nicht gespeichert.</b> Alle Einstellungen sind übernommen${dupOf ? " von " + esc(WD[wdOf(dupOf.date)] + " " + fmtY(dupOf.date)) : ""}. Bitte eine neue <b>Startzeit</b> eintragen (Pflichtfeld) und Datum, Status und Referenten prüfen.</div>` : "";
@@ -1538,7 +1691,8 @@ function evForm(e){
    <label class="full">Titel <span class="hint">leer = Name der Reihe</span><input name="title" value="${esc(e.title||"")}"></label>
    <label>Themenbereich<select name="theme"><option value="">–</option>${opt(Object.keys(THEMES), e.theme)}</select></label>
    <label>Art<select name="kind">${opt(Object.entries(KINDS), e.kind||"va")}</select></label>
-   <label>Status <span class="hint">Idee: nur denkbar · Option: intern vorgemerkt · angefragt: Referent gefragt · zugesagt: Referent hat bestätigt · fix: intern freigegeben, alle Angaben komplett · in WP angelegt · veröffentlicht. Frist: 10 Wochen vorher mind. fix (sonst Vorwarnung), 8 Wochen vorher veröffentlicht (sonst Fehler).</span><select name="status">${opt(STATUS, e.status)}</select></label>
+   <label>Status <span class="hint">Idee: nur denkbar · Option: intern vorgemerkt · angefragt: Referent gefragt · zugesagt: Referent hat bestätigt · fix: intern freigegeben, alle Angaben komplett · in WP angelegt · veröffentlicht. Frist: ${WARN_DAYS/7} Wochen vorher mind. fix (sonst Vorwarnung), ${ON_DAYS/7} Wochen vorher veröffentlicht (sonst Fehler).</span><select name="status">${opt(STATUS, e.status)}</select></label>
+   <label class="full">Link auf survivors-home.de <span class="hint">setzt der Website-Abgleich automatisch; nur eintragen, wenn er fehlt oder falsch ist (wird dann nicht mehr überschrieben). Leeren = beim nächsten Abgleich neu zuordnen.</span><input type="url" name="webUrl" value="${esc((e.web||{}).url||"")}" placeholder="https://survivors-home.de/veranstaltung/…"></label>${webInfo(e)}
    <label class="cb"><input type="checkbox" name="fixed" ${e.fixed?"checked":""}> fester Termin <span class="hint">Datum und Zeit sind von außen vorgegeben (z. B. Partner, Referent): Die Jahresplanung verschiebt oder ersetzt diesen Termin nie; Hinweise zu ruhiger Woche, Programmpause und Dachgeschoss entfallen.</span></label>
    <label class="full">Referenten (Strg/⌘ für mehrere)<select name="refs" multiple>${refOpts(e.refs)}</select></label>
   </div></details>
@@ -1556,7 +1710,7 @@ function evForm(e){
    <div class="invbox full" data-invbox="1"${e.hybrid ? "" : " hidden"}><a class="btn" data-invite="1" href="#" target="_blank" rel="noopener">Termineinladung</a><label class="cb"><input type="checkbox" name="invSent" ${e.invSent && !e.__dup ? "checked" : ""}> Einladung verschickt</label>${qh(INV_HELP)}<span class="invhint" aria-live="polite"></span></div>
    <label class="full">Parallelbetrieb im EG <span class="hint">${esc((ser.id ? "leer = aus Reihe: Stufe " + serLevel(ser) + " · " : "") + EGL_HELP)}</span><select name="egLevel">${ser.id ? `<option value="">aus Reihe: ${esc(serLevel(ser) + " · " + eglName(serLevel(ser)))}</option>` : ""}${opt(EGL.map(x => [String(x[0]), x[0] + " · " + x[1]]), +e.egLevel ? String(e.egLevel) : (ser.id ? "" : String(e.excl ? 3 : 1)))}</select></label>
    <label>Draußen <span class="hint">${esc(ser.id ? "leer = aus Reihe: " + (ser.outdoor ? "ja" : "nein") : "")} – steuert die Prüfung auf Sonnenuntergang</span><select name="outdoor"><option value="">${ser.id ? "aus Reihe" : "–"}</option>${opt([["ja","findet (teilweise) draußen statt"],["nein","drinnen"]], e.outdoor === true ? "ja" : e.outdoor)}</select></label>
-   <label>Check-in<select name="checkin"><option value="">${esc(ser.id ? "aus Reihe: " + ciLab[serCi] : "Standard (30 Min vor Beginn)")}</option>${opt([["vorher","30 Min vor Beginn"],["durchgehend","durchgehend: 30 Min vorher und während der ganzen Veranstaltung"],["keiner","kein Check-in"]], e.checkin)}</select></label>
+   <label>Check-in<select name="checkin"><option value="">${esc(ser.id ? "aus Reihe: " + ciLab[serCi] : "Standard (" + CI_MIN + " Min vor Beginn)")}</option>${opt([["vorher","30 Min vor Beginn"],["durchgehend","durchgehend: " + CI_MIN + " Min vorher und während der ganzen Veranstaltung"],["keiner","kein Check-in"]], e.checkin)}</select></label>
    <label>Aufbau vor Beginn <span class="hint">${esc(fromSer(ser.setup, hm) || "leer = 5:00 h bei Hybrid, sonst 0")}${e.allDay ? " · bei ganztägig ohne Wirkung" : ""}</span>${durPair(`name="setup" placeholder="${esc(has(ser.setup) ? ser.setup : "")}" step="15"`, e.setup, "Aufbau")}</label>
    <label>Nachlauf Gäste <span class="hint">${esc((fromSer(ser.after, hm) || "leer = 0") + " · Zeit nach dem offiziellen Ende, in der Gäste noch im Raum sind")}</span>${durPair(`name="after" placeholder="${esc(has(ser.after) ? ser.after : "")}" step="5"`, e.after, "Nachlauf")}</label>
    <label>Abbau nach Ende <span class="hint">${esc(fromSer(ser.teardown, hm) || "leer = 0")}</span>${durPair(`name="teardown" placeholder="${esc(has(ser.teardown) ? ser.teardown : "")}" step="15"`, e.teardown, "Abbau")}</label>
@@ -1608,7 +1762,7 @@ function serForm(s){
    <label class="cb"><input type="checkbox" name="hybrid" ${s.hybrid?"checked":""}> Hybrid / Live</label><input type="hidden" name="sebAuto" value="${s.sebAuto ? "1" : ""}">
    <label class="full">Parallelbetrieb im EG <span class="hint">${esc(EGL_HELP)}</span><select name="egLevel">${opt(EGL.map(x => [String(x[0]), x[0] + " · " + x[1]]), String(serLevel(s)))}</select></label>
    <label class="cb full"><input type="checkbox" name="outdoor" ${s.outdoor?"checked":""}> findet (teilweise) draußen statt</label>
-   <label class="full">Check-in<select name="checkin">${opt([["vorher","30 Min vor Beginn"],["durchgehend","durchgehend: 30 Min vorher und während der ganzen Veranstaltung"],["keiner","kein Check-in"]], s.checkin || (s.form==="Beratung" ? "durchgehend" : "vorher"))}</select></label>
+   <label class="full">Check-in<select name="checkin">${opt([["vorher",CI_MIN + " Min vor Beginn"],["durchgehend","durchgehend: " + CI_MIN + " Min vorher und während der ganzen Veranstaltung"],["keiner","kein Check-in"]], s.checkin || (s.form==="Beratung" ? "durchgehend" : "vorher"))}</select></label>
    <label>Aufbau vor Beginn <span class="hint">(leer = 5:00 h bei Hybrid)</span>${durPair(`name="setup" step="15"`, s.setup, "Aufbau")}</label>
    <label>Nachlauf Gäste <span class="hint">(nach offiziellem Ende)</span>${durPair(`name="after" step="5"`, s.after, "Nachlauf")}</label>
    <label>Abbau nach Ende${durPair(`name="teardown" step="15"`, s.teardown||"", "Abbau")}</label>
@@ -1693,7 +1847,7 @@ function refreshLive(fromRender){
   const iss = markAcc(computeIssues(list)).get(d.id) || [];
   const saved = d.id && S.events[d.id];
   const accBtn = x => saved && (x.l === "err" || x.l === "warn") ? ` <button type="button" class="btn ghost sm" data-acc='${esc(JSON.stringify([d.id, x.t]))}' data-on="${x.acc ? 0 : 1}">${x.acc ? "wieder aktivieren" : "akzeptieren"}</button>` : "";
-  const due = S_(D(d.date)-56);
+  const due = S_(D(d.date)-ON_DAYS);
   box.innerHTML = `<div class="notes">${WD[wdOf(d.date)]} · KW ${isoWeek(d.date)[1]} · Woche ${esc(weekStatus(d.date))} · online bis ${fmtY(due)}</div>` + (iss.length ? iss.map(x => `<div><span class="lv ${x.acc ? "warn acc" : x.l}">${x.acc ? "akzeptiert: " : ""}${esc(x.t)}</span>${accBtn(x)}</div>`).join("") : `<div><span class="lv info" style="color:var(--ok)">Keine Konflikte gefunden</span></div>`);
 }
 async function saveDrawer(kind, then){
@@ -1704,6 +1858,8 @@ async function saveDrawer(kind, then){
     if ("egLevel" in o){ o.egLevel = +o.egLevel || null; o.excl = egLevel(o) >= 3; }
     if (!o.title && o.seriesId) o.title = (S.series[o.seriesId]||{}).name || "";
     o.sebAuto = o.sebAuto === "1" && (o.refs||[]).includes(SEB_ID); o.invSent = !!o.invSent;
+    { const cur = (S.events[id] || {}).web, u = o.webUrl || ""; delete o.webUrl;
+      if (!u) delete o.web; else if (!cur || u !== (cur.url || "")) o.web = {url:u, src:"manuell"}; else o.web = cur; }
     if (await put("events", id, o)){ S.events[id] = o; closeDrawer(true); toast("Termin gespeichert"); render(); }
   } else if (kind === "ser"){
     const id = dr.id || newId("series"); o = Object.assign({}, S.series[id] || {}, o, {id, unconfirmed: []}); if ("egLevel" in o){ o.egLevel = +o.egLevel || 1; o.excl = o.egLevel >= 3; o.exclStrict = o.egLevel === 4; } o.active = o.activeSel !== "pausiert"; delete o.activeSel; o.seasonFrom = de2md(o.seasonFrom); o.seasonTo = de2md(o.seasonTo);
@@ -1715,8 +1871,8 @@ async function saveDrawer(kind, then){
   }
 }
 /* v108: Sebastian bei Hybrid automatisch als Referent; Termineinladung über Outlook im Web */
-const SEB_ID = "sebastian-roeder", SEB_MAIL = "sebastian.roeder@survivors-home.de";
-const INV_LOC = "SURVIVORS HOME Foundation, Hildegardstr. 31, 10715 Berlin";
+const SEB_ID = "sebastian-roeder";
+let SEB_MAIL = "sebastian.roeder@survivors-home.de", INV_LOC = "SURVIVORS HOME Foundation, Hildegardstr. 31, 10715 Berlin"; /* Einstellungen */
 const INV_HELP = `<b>Termineinladung (nur bei Hybrid)</b><ul><li>„Termineinladung“ öffnet in Outlook im Web eine neue Besprechung: Titel, Beginn bis Ende, Ort und alle Referenten des Termins mit E-Mail-Adresse als Teilnehmer sind eingetragen. In Outlook prüfen und „Senden“ klicken.</li><li>Verwendet die aktuellen Angaben im Dialog, auch wenn sie noch nicht gespeichert sind.</li><li>„Einladung verschickt“ abhaken, sobald die Einladung raus ist, und den Termin speichern.</li><li>Prüfung: ohne Haken ab Status „fix“ oder „in WP angelegt“ ein Hinweis, bei „veröffentlicht“ ein Fehler (nur kommende Termine).</li><li>Ändern sich Datum, Beginn oder Dauer, wird der Haken entfernt – dann die Einladung neu senden.</li><li>Beim Einschalten von „Hybrid / Live“ wird Sebastian automatisch als Referent ergänzt (beim Ausschalten wieder entfernt, wenn er automatisch ergänzt wurde).</li></ul>`;
 function sebSync(f, on){
   const sel = f.elements.refs, au = f.elements.sebAuto; if (!sel) return;
@@ -1790,12 +1946,14 @@ const bkNorm = o => { const c = Object.assign({}, o); delete c.id; return JSON.s
 function backupObj(){
   const c = {}; BK_COLS.forEach(k => c[k] = JSON.parse(JSON.stringify(S[k] || {})));
   return {format:BK_FORMAT, version:1, created:localIso(), source: OFFLINE ? "offline" : "online", collections:c,
-    meta:{accepted:{items:JSON.parse(JSON.stringify(S.accepted || {}))}, weeks:{status:JSON.parse(JSON.stringify(S.weeks || {}))}}};
+    meta:{accepted:{items:JSON.parse(JSON.stringify(S.accepted || {}))}, weeks:{status:JSON.parse(JSON.stringify(S.weeks || {}))}, settings:JSON.parse(JSON.stringify(S.settings || {})), ...(S.websync ? {websync:JSON.parse(JSON.stringify(S.websync))} : {})}};
 }
 const validBackup = b => !!(b && b.format === BK_FORMAT && b.collections && b.collections.events);
 function applyBackupLocal(b){
   BK_COLS.forEach(k => { const m = {}; Object.entries((b.collections || {})[k] || {}).forEach(([id, o]) => { const x = normRooms(Object.assign({}, o)); x.id = id; m[id] = x; }); S[k] = m; });
   S.accepted = Object.assign({}, ((b.meta || {}).accepted || {}).items || {}); S.weeks = Object.assign({}, ((b.meta || {}).weeks || {}).status || {}); S.loaded = true;
+  if ((b.meta || {}).websync){ S.websync = b.meta.websync; S.wsLoaded = true; }
+  S.settings = Object.assign({}, (b.meta || {}).settings || {}); applySettings();
 }
 async function saveFile(name, text, mime){
   if (downloads){ try { const r = await downloads.save({filename:name, data:text}); return !!(r && r.status === "saved"); } catch(e){ if (e && e.code === "cancelled") return false; } }
@@ -1833,6 +1991,7 @@ function bkDiff(b){
   const wk = ((b.meta || {}).weeks || {}).status || {}, cw = S.weeks || {};
   out.weeks = [...new Set(Object.keys(wk).concat(Object.keys(cw)))].filter(k => (wk[k] || "") !== (cw[k] || "")).length;
   out.acc = JSON.stringify(sortKeys(((b.meta || {}).accepted || {}).items || {})) !== JSON.stringify(sortKeys(S.accepted || {}));
+  out.set = !!(b.meta || {}).settings && JSON.stringify(sortKeys(b.meta.settings)) !== JSON.stringify(sortKeys(S.settings || {})); /* ältere Backups ohne Einstellungen: nicht anfassen */
   return out;
 }
 const BK_F = [["date","Datum",v => v ? fmtY(v) : "–"],["start","Start",v => v || "–"],["dur","Dauer",v => v ? v + " Min" : "–"],["room","Raum",v => v || "–"],["status","Status",v => v || "–"],["title","Titel",v => v || "–"]];
@@ -1843,13 +2002,13 @@ function bkEvLine(e, tag){
   return `<li><span class="lv ${tag === "nur online" ? "warn" : "info"}">${tag}</span> ${e.date ? fmtY(e.date) : ""} ${esc(e.start || "")} <b>${esc(evName(e))}</b>${det}</li>`;
 }
 function viewSicherung(){
-  const help = `<b>Sicherung</b><ul>${OFFLINE ? `<li>Dies ist die <b>Offline-Version</b>: Sie läuft ohne Claude im Browser und prüft mit denselben Regeln wie das Online-Tool. Es gibt keine gemeinsame Datenbank – jede Kopie ist für sich.</li><li><b>Backup-Datei laden</b>: eine JSON-Sicherung öffnen (ersetzt den Stand in dieser Version).</li><li><b>Als Backup-Datei speichern</b>: aktuellen Stand als JSON sichern. Zusätzlich wird nach jeder Änderung ein Zwischenstand im Browser gehalten.</li><li>Zurück ins Online-Tool: dort unter „Sicherung“ → „Backup einspielen“.</li><li>Nicht verfügbar: Auswertung von Antwortmails durch Claude.</li>` : `<li><b>Backup herunterladen</b>: vollständiger Stand als JSON-Datei (alle Termine, Reihen, Referenten, Nachrichten, Abwesenheiten, Wochenstatus, akzeptierte Konflikte).</li><li><b>Offline-Version herunterladen</b>: der Planer als eine HTML-Datei mit dem aktuellen Stand – öffnet per Doppelklick im Browser, ohne Claude. Bitte nach größeren Änderungen am Tool neu herunterladen.</li><li><b>Backup einspielen</b>: zeigt die Unterschiede zwischen Datei und aktuellem Stand; nach Bestätigung werden sie übernommen. Vorher wird automatisch der aktuelle Stand als Datei gesichert.</li>`}</ul>`;
+  const help = `<b>Sicherung</b><ul>${OFFLINE ? `<li>Dies ist die <b>Offline-Version</b>: Sie läuft ohne Claude im Browser und prüft mit denselben Regeln wie das Online-Tool. Es gibt keine gemeinsame Datenbank – jede Kopie ist für sich.</li><li><b>Backup-Datei laden</b>: eine JSON-Sicherung öffnen (ersetzt den Stand in dieser Version).</li><li><b>Als Backup-Datei speichern</b>: aktuellen Stand als JSON sichern. Zusätzlich wird nach jeder Änderung ein Zwischenstand im Browser gehalten.</li><li>Zurück ins Online-Tool: dort unter „Einstellungen“ → „Sicherung“ → „Backup einspielen“.</li><li>Nicht verfügbar: Auswertung von Antwortmails durch Claude.</li>` : `<li><b>Backup herunterladen</b>: vollständiger Stand als JSON-Datei (alle Termine, Reihen, Referenten, Nachrichten, Abwesenheiten, Wochenstatus, akzeptierte Konflikte).</li><li><b>Offline-Version herunterladen</b>: der Planer als eine HTML-Datei mit dem aktuellen Stand – öffnet per Doppelklick im Browser, ohne Claude. Bitte nach größeren Änderungen am Tool neu herunterladen.</li><li><b>Backup einspielen</b>: zeigt die Unterschiede zwischen Datei und aktuellem Stand; nach Bestätigung werden sie übernommen. Vorher wird automatisch der aktuelle Stand als Datei gesichert.</li>`}</ul>`;
   const card = (t, inner) => `<section class="bkc"><h3>${t}</h3>${inner}</section>`;
-  let html = `<div class="head"><h2>Sicherung ${qh(help)}</h2></div><div class="bkg">`;
+  let html = `${setNav()}<div class="head"><h2>Sicherung ${qh(help)}</h2></div><div class="bkg">`;
   if (OFFLINE){
     html += card("Stand dieser Offline-Version", `<p>${OFF.src ? "Daten: " + esc(OFF.src) : "Noch keine Daten geladen."}</p><p>${OFF.dirty ? `<span class="lv warn">${OFF.dirty} ungespeicherte Änderung${OFF.dirty === 1 ? "" : "en"}</span> – bitte als Backup-Datei speichern.` : `<span class="lv info">alles als Datei gespeichert</span>`}</p>`)
       + card("Backup-Datei laden", `<p>JSON-Sicherung aus dem Online-Tool oder aus dieser Offline-Version öffnen. Der Stand hier wird dabei ersetzt.</p><input type="file" id="bkLoad" accept=".json,application/json">`)
-      + card("Speichern", `<p><button class="btn primary" data-bk="json">Als Backup-Datei speichern</button></p><p><button class="btn" data-bk="html">Offline-Version mit aktuellem Stand speichern</button></p><p class="notes">Zurück ins Online-Tool: dort „Sicherung“ → „Backup einspielen“ und die gespeicherte JSON-Datei wählen.</p>`);
+      + card("Speichern", `<p><button class="btn primary" data-bk="json">Als Backup-Datei speichern</button></p><p><button class="btn" data-bk="html">Offline-Version mit aktuellem Stand speichern</button></p><p class="notes">Zurück ins Online-Tool: dort „Einstellungen“ → „Sicherung“ → „Backup einspielen“ und die gespeicherte JSON-Datei wählen.</p>`);
   } else {
     html += card("Backup herunterladen", `<p>Vollständiger Stand als JSON-Datei – zum Aufbewahren (z. B. OneDrive) und zum Wiederherstellen.</p><p><button class="btn primary" data-bk="json">Backup herunterladen</button></p>`)
       + card("Offline-Version herunterladen", `<p>Der Planer als eine HTML-Datei mit dem aktuellen Stand. Öffnet per Doppelklick im Browser, ohne Claude: Wochenansicht, Bearbeiten, Prüfregeln und Alternativen funktionieren; es fehlen nur die gemeinsame Datenbank und die Auswertung von Antwortmails.</p><p><button class="btn primary" data-bk="html">Offline-Version herunterladen</button></p>`)
@@ -1866,11 +2025,11 @@ function viewSicherung(){
     const sum = BK_COLS.reduce((a, k) => a + n(k).nu.length + n(k).ch.length, 0), gone = BK_COLS.reduce((a, k) => a + n(k).gone.length, 0);
     const ev = n("events"), lines = [...ev.nu.map(e => bkEvLine(e, "neu")), ...ev.ch.map(e => bkEvLine(e, "geändert")), ...ev.gone.map(e => bkEvLine(e, "nur online"))];
     html += `<section class="bkc bki"><h3>Einspielen: ${esc(imp.name)} <span class="notes">(Stand der Datei: ${esc(bkWhen(imp.b.created))}, ${imp.b.source === "offline" ? "aus der Offline-Version" : "aus dem Online-Tool"})</span></h3>
-      <table class="bkt"><thead><tr><th>Bereich</th><th>neu in der Datei</th><th>geändert</th><th>nur online (fehlt in der Datei)</th></tr></thead><tbody>${rows}<tr><td>Wochenstatus</td><td colspan="3">${d.weeks ? d.weeks + " Wochen abweichend" : "gleich"}</td></tr><tr><td>Akzeptierte Konflikte</td><td colspan="3">${d.acc ? "abweichend" : "gleich"}</td></tr></tbody></table>
+      <table class="bkt"><thead><tr><th>Bereich</th><th>neu in der Datei</th><th>geändert</th><th>nur online (fehlt in der Datei)</th></tr></thead><tbody>${rows}<tr><td>Wochenstatus</td><td colspan="3">${d.weeks ? d.weeks + " Wochen abweichend" : "gleich"}</td></tr><tr><td>Akzeptierte Konflikte</td><td colspan="3">${d.acc ? "abweichend" : "gleich"}</td></tr><tr><td>Einstellungen</td><td colspan="3">${(imp.b.meta || {}).settings ? (d.set ? "abweichend" : "gleich") : "nicht in der Datei (bleiben unverändert)"}</td></tr></tbody></table>
       ${lines.length ? `<details${lines.length <= 40 ? " open" : ""}><summary>Termine im Einzelnen (${lines.length})</summary><ul class="bkl">${lines.slice(0, 400).join("")}</ul></details>` : `<p class="notes">Keine Unterschiede bei den Terminen.</p>`}
-      <div class="bko"><label class="cb"><input type="checkbox" id="impNew" checked> Neue übernehmen</label><label class="cb"><input type="checkbox" id="impCh" checked> Geänderte übernehmen (Stand der Datei gewinnt)</label><label class="cb"><input type="checkbox" id="impDel"> Was in der Datei fehlt, online löschen (${gone})</label><label class="cb"><input type="checkbox" id="impMeta" checked${d.weeks || d.acc ? "" : " disabled"}> Wochenstatus und akzeptierte Konflikte übernehmen</label></div>
+      <div class="bko"><label class="cb"><input type="checkbox" id="impNew" checked> Neue übernehmen</label><label class="cb"><input type="checkbox" id="impCh" checked> Geänderte übernehmen (Stand der Datei gewinnt)</label><label class="cb"><input type="checkbox" id="impDel"> Was in der Datei fehlt, online löschen (${gone})</label><label class="cb"><input type="checkbox" id="impMeta" checked${d.weeks || d.acc || d.set ? "" : " disabled"}> Wochenstatus, akzeptierte Konflikte und Einstellungen übernehmen</label></div>
       <p class="notes">Achtung: Wurde ein Termin seit dem Backup online <i>und</i> in der Datei geändert, gewinnt beim Übernehmen die Datei. Vor dem Einspielen wird der aktuelle Online-Stand automatisch als Datei gesichert.</p>
-      <p><button class="btn primary" data-bk="apply"${sum || gone || d.weeks || d.acc ? "" : " disabled"}>Einspielen</button> <button class="btn" data-bk="cancel">Abbrechen</button></p></section>`; }
+      <p><button class="btn primary" data-bk="apply"${sum || gone || d.weeks || d.acc || d.set ? "" : " disabled"}>Einspielen</button> <button class="btn" data-bk="cancel">Abbrechen</button></p></section>`; }
   return html;
 }
 async function bkApply(){
@@ -1883,10 +2042,11 @@ async function bkApply(){
     for (const x of [].concat(o.nu ? c.nu : [], o.ch ? c.ch : [])){ if (await put(k, x.id, x)){ S[k][x.id] = x; ok++; } else fail++; }
     if (o.del) for (const x of c.gone){ await del(k, x.id); delete S[k][x.id]; ok++; } }
   if (o.meta){ const wk = ((imp.b.meta || {}).weeks || {}).status || {}, ac = ((imp.b.meta || {}).accepted || {}).items || {};
-    try { await db.doc("meta/weeks").set({status:wk}); S.weeks = Object.assign({}, wk); await db.doc("meta/accepted").set({items:ac}); S.accepted = Object.assign({}, ac); ok++; } catch(e){ fail++; } }
+    try { await db.doc("meta/weeks").set({status:wk}); S.weeks = Object.assign({}, wk); await db.doc("meta/accepted").set({items:ac}); S.accepted = Object.assign({}, ac);
+      if ((imp.b.meta || {}).settings){ await db.doc("meta/settings").set(imp.b.meta.settings); S.settings = Object.assign({}, imp.b.meta.settings); applySettings(); } ok++; } catch(e){ fail++; } }
   UI.imp = null; render(); toast(fail ? ok + " übernommen, " + fail + " fehlgeschlagen" : ok + " Änderungen eingespielt");
 }
-const TEAM_URL = "https://survivors-home.github.io/belegung/team/";
+let TEAM_URL = "https://belegung.survivors-home.de/team/"; /* Einstellungen */
 async function bkAction(k){
   if (k === "teampw"){ const v = ($("#teamPw").value || "").trim(); if (v.length < 12){ toast("Mindestens 12 Zeichen"); return; } if (!db){ toast("Nur im Online-Tool möglich"); return; }
     try { await db.doc("meta/team").set({pass:v, set:localIso()}); toast("Team-Passwort gespeichert – gilt ab der nächsten Aktualisierung"); } catch(e){ toast("Passwort nicht gespeichert"); } return; }
@@ -1906,7 +2066,7 @@ async function bkReadFile(input){
 /* ---------- CSV ---------- */
 async function exportCsv(){
   const rows = [["Datum","Wochentag","Start","Ende","Veranstaltung","Themenbereich","Raum","Hybrid","Status","Online bis","Referenten","Prüfung"]];
-  filtered().forEach(e => { const sp = span(e); rows.push([fmtY(e.date), WD[wdOf(e.date)], e.allDay?"ganztägig":(e.start||""), sp&&!e.allDay?m2t(sp.e):"", evName(e), e.theme||"", e.room||"", e.hybrid?"ja":"", e.status||"", e.kind==="va"?fmtY(S_(D(e.date)-56)):"", (e.refs||[]).map(r => (S.referents[r]||{}).name).filter(Boolean).join(", "), issuesOf(e.id).map(x => x.t).join(" | ")]); });
+  filtered().forEach(e => { const sp = span(e); rows.push([fmtY(e.date), WD[wdOf(e.date)], e.allDay?"ganztägig":(e.start||""), sp&&!e.allDay?m2t(sp.e):"", evName(e), e.theme||"", e.room||"", e.hybrid?"ja":"", e.status||"", e.kind==="va"?fmtY(S_(D(e.date)-ON_DAYS)):"", (e.refs||[]).map(r => (S.referents[r]||{}).name).filter(Boolean).join(", "), issuesOf(e.id).map(x => x.t).join(" | ")]); });
   const csv = "﻿" + rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(";")).join("\r\n");
   if (await saveFile(`Programmplanung_${YEAR}.csv`, csv, "text/csv")) toast("CSV gespeichert");
 }
@@ -1917,7 +2077,7 @@ document.addEventListener("click", async ev => {
   { const a = ev.target.closest && ev.target.closest("[data-invite]");
     if (a){ const info = inviteInfo(draftEvent()); if (info.err){ ev.preventDefault(); toast(info.err); return; }
       a.href = info.url; if (info.miss.length) toast("Ohne E-Mail, bitte in Outlook ergänzen: " + info.miss.join(", ")); else if (!info.to.length) toast("Keine Referenten mit E-Mail – Teilnehmer in Outlook eintragen"); return; } }
-  const t = ev.target.closest("[data-sentyes],[data-sentno],[data-zone],[data-acc],[data-accg],[data-newround],[data-amode],[data-pfilt],[data-pmail],[data-pcopy],[data-psent],[data-pans],[data-pevs],[data-pparse],[data-papply],[data-psave],[data-rmail],[data-rcopy],[data-rsent],[data-rremind],[data-rans],[data-rhist],[data-aparse],[data-asave],[data-aapply],[data-delavail],[data-ydet],[data-sernav],[data-evnav],[data-openser],[data-back],[data-quick],[data-view],[data-wk],[data-goweek],[data-ev],[data-new],[data-wnav],[data-wtoday],[data-prback],[data-dayweek],[data-ytoday],[data-alt],[data-altgo],[data-altset],[data-altcopy],[data-bk],[data-ser],[data-newser],[data-ref],[data-newref],[data-close],[data-save],[data-del],[data-delok],[data-dup],[data-gen],[data-take],[data-csv],[data-delabs],[data-serf],[data-lpast]");
+  const t = ev.target.closest("[data-sentyes],[data-sentno],[data-zone],[data-acc],[data-accg],[data-newround],[data-amode],[data-pfilt],[data-pmail],[data-pcopy],[data-psent],[data-pans],[data-pevs],[data-pparse],[data-papply],[data-psave],[data-rmail],[data-rcopy],[data-rsent],[data-rremind],[data-rans],[data-rhist],[data-aparse],[data-asave],[data-aapply],[data-delavail],[data-ydet],[data-sernav],[data-evnav],[data-openser],[data-back],[data-quick],[data-view],[data-wk],[data-goweek],[data-ev],[data-new],[data-wnav],[data-wtoday],[data-prback],[data-dayweek],[data-ytoday],[data-alt],[data-altgo],[data-altset],[data-altcopy],[data-bk],[data-ser],[data-newser],[data-ref],[data-newref],[data-close],[data-save],[data-del],[data-delok],[data-dup],[data-gen],[data-take],[data-csv],[data-delabs],[data-serf],[data-lpast],[data-ferdel],[data-ferdef],[data-fxdel],[data-setdef]");
   const guard = () => { if (UI.drawer && UI.dirty && !UI.dirtyOk){ UI.dirtyOk = true; clearTimeout(UI.dirtyT); UI.dirtyT = setTimeout(() => UI.dirtyOk = false, 4000); toast("Ungespeicherte Änderungen – zum Verwerfen erneut klicken"); return true; } return false; };
   if (!t) {
     if (UI.drawer && !ev.target.closest("#drawer") && !ev.target.closest("input,select,textarea,label,button,a,summary,.qh,#qtip") && !guard()) closeDrawer();
@@ -1998,11 +2158,15 @@ document.addEventListener("click", async ev => {
   if (ds.save) return saveDrawer(ds.save, ds.then);
   if (ds.del){ t.hidden = true; $("[data-delok]").hidden = false; return; }
   if (ds.delok){ const d = UI.drawer, col = {ev:"events",ser:"series",ref:"referents"}[d.kind], map = {ev:S.events,ser:S.series,ref:S.referents}[d.kind]; await del(col, d.id); delete map[d.id]; closeDrawer(true); toast("Gelöscht"); return render(); }
-  if (ds.dup){ const from = UI.drawer.id, o = Object.assign({}, S.events[from] || {}, draftEvent()); closeDrawer(true, true); delete o.id; o.start = ""; o.invSent = false; o.__dup = from; openDrawer("ev", null, o); const st = $("#drawer input[name=start]"); if (st && !st.disabled) st.focus(); return; }
+  if (ds.dup){ const from = UI.drawer.id, o = Object.assign({}, S.events[from] || {}, draftEvent()); closeDrawer(true, true); delete o.id; o.start = ""; o.invSent = false; delete o.web; o.__dup = from; openDrawer("ev", null, o); const st = $("#drawer input[name=start]"); if (st && !st.disabled) st.focus(); return; }
   if (ds.gen) return genCands();
   if (ds.take) return takeCands();
   if (ds.csv) return exportCsv();
   if (ds.delabs){ await del("absences", ds.delabs); delete S.absences[ds.delabs]; return render(); }
+  if (ds.ferdel){ const k = ds.ferdel; return saveSettings({ferien: FERIEN.filter(x => JSON.stringify(x) !== k)}, "Ferien entfernt"); }
+  if (ds.ferdef) return saveSettings({ferien: null}, "Standardliste der Schulferien wird verwendet");
+  if (ds.fxdel){ const ex = ((S.settings || {}).feierExtra || []).filter(x => x[0] !== ds.fxdel); return saveSettings({feierExtra: ex.length ? ex : null}, "Feiertag entfernt"); }
+  if (ds.setdef){ const p = {}; SET_F[ds.setdef].forEach(f => p[f[0]] = null); return saveSettings(p, "Standardwerte eingestellt"); }
 });
 document.addEventListener("input", ev => {
   if (ev.target.classList && ev.target.classList.contains("endt")){ const f0 = ev.target.closest("#f"); if (f0) endApply(f0, ev.target, false); return; }
@@ -2042,6 +2206,7 @@ document.addEventListener("change", async ev => {
   if (id === "fStatus"){ UI.status = ev.target.value; render(); }
   if (id === "fIss"){ UI.onlyIssues = ev.target.checked; render(); }
   if (id === "wkjump" && ev.target.value){ UI.week = ev.target.value; render(); }
+  if (ev.target.dataset && ev.target.dataset.wksel) setWeek(ev.target.dataset.wksel, ev.target.value);
 });
 document.addEventListener("submit", async ev => {
   ev.preventDefault();
@@ -2056,6 +2221,35 @@ document.addEventListener("submit", async ev => {
     if (!o.person || !o.from) return;
     const id = newId("absences"); o.id = id;
     if (await put("absences", id, o)){ S.absences[id] = o; toast("Abwesenheit eingetragen"); render(); }
+  }
+  if (ev.target.id === "ferForm"){
+    const f = [$("#fFrom").value, $("#fTo").value || $("#fFrom").value, $("#fName").value.trim()];
+    if (!f[0] || !f[2]) return; if (f[1] < f[0]) f[1] = f[0];
+    return saveSettings({ferien: FERIEN.concat([f]).sort((a,b) => a[0].localeCompare(b[0]))}, "Ferien eingetragen");
+  }
+  if (ev.target.id === "fxForm"){
+    const f = [$("#xDate").value, $("#xName").value.trim()]; if (!f[0] || !f[1]) return;
+    const ex = ((S.settings || {}).feierExtra || []).filter(x => x[0] !== f[0]).concat([f]).sort((a,b) => a[0].localeCompare(b[0]));
+    return saveSettings({feierExtra: ex}, "Feiertag eingetragen");
+  }
+  if (ev.target.id === "wkForm"){ const d = $("#wDate").value, v = $("#wVal").value; if (!d) return; await setWeek(weekKey(d), v); return toast(wkLabel(weekKey(d)) + ": " + (v === "pause" ? "Programmpause" : "ruhig")); }
+  if (ev.target.id === "setForm"){
+    const f = ev.target, p = {}, err = [];
+    for (const [k, l, , ty, mn, mx] of SET_F[f.dataset.kind]){
+      const raw = (f.elements[k].value || "").trim(); let v = raw === "" ? null : ty === "number" ? +raw : raw;
+      if (v !== null && ty === "number" && (isNaN(v) || (mn !== "" && v < +mn) || (mx !== "" && v > +mx))) err.push(l + ": " + mn + "–" + mx);
+      if (v !== null && ty === "time" && !/^\d\d:\d\d$/.test(v)) err.push(l + ": Uhrzeit");
+      if (v !== null && String(v) === String(SET_DEF[k])) v = null;
+      p[k] = v;
+    }
+    const g = k => p[k] !== undefined ? (p[k] === null ? SET_DEF[k] : p[k]) : setv(k);
+    if (f.dataset.kind === "zeiten"){
+      if (t2m(g("openFrom")) >= t2m(g("openTo"))) err.push("Kernöffnungszeit: „von“ muss vor „bis“ liegen");
+      if (+g("warnWeeks") <= +g("onlineWeeks")) err.push("Vorwarnung muss mehr Wochen vorher liegen als die Online-Frist");
+      if (![15, 30, 60].includes(+g("altStep"))) err.push("Raster „Mögliche Zeiten“: 15, 30 oder 60 Min");
+    }
+    if (err.length) return toast("Nicht gespeichert – " + err.join(" · "));
+    return saveSettings(p, "Einstellungen gespeichert");
   }
 });
 document.addEventListener("keydown", ev => { if (ev.key === "Escape"){ const sa = document.getElementById("sentask"); if (sa && !sa.hidden){ closeSentAsk(); return; } if (UI.drawer) closeDrawer(); } });
@@ -2132,8 +2326,8 @@ function mobTags(d, noWk){
 function mobDayV(d){
   const L = evList().filter(e => e.date === d).sort(sortEv), timed = L.filter(e => e.kind !== "notiz" && span(e)), open = L.filter(e => e.kind !== "notiz" && !span(e));
   UMB = umbauMap(evList());
-  let lo = 10*60, hi = 21*60;
-  for (const e of timed){ const sp = span(e); lo = Math.min(lo, sp.s - Math.max(setupOf(e), arrives(e) ? 30 : 0)); hi = Math.max(hi, sp.e + (e.allDay ? 0 : afterOf(e) + teardownOf(e))); }
+  let lo = Math.floor(t2m(OPEN_FROM)/60)*60, hi = Math.ceil(t2m(OPEN_TO)/60)*60;
+  for (const e of timed){ const sp = span(e); lo = Math.min(lo, sp.s - Math.max(setupOf(e), arrives(e) ? CI_MIN : 0)); hi = Math.max(hi, sp.e + (e.allDay ? 0 : afterOf(e) + teardownOf(e))); }
   const T0 = Math.max(0, Math.floor(lo/60)*60), T1 = Math.min(24*60, Math.ceil(hi/60)*60), TS = T1 - T0;
   const Y = m => ((Math.min(Math.max(m, T0), T1) - T0) / TS * 100).toFixed(3) + "%", H = (a, b) => ((Math.min(b, T1) - Math.max(a, T0)) / TS * 100).toFixed(3) + "%";
   const LBL = {"Workshopraum":"Worksh.","Küche/Esszimmer":"Küche","Wohnzimmer":"Wohnz.","Innenhof":"Hof","DG (Notfall)":"DG","Raum offen":"offen","unterwegs":"unterw."};
@@ -2164,7 +2358,7 @@ function mobDayV(d){
     });
     const wi = lanes.indexOf("Workshopraum"), fu = furnOf(e), um = UMB.get(e.id); if (fu && wi >= 0) cols[wi].push(`<span class="vfur${um ? " chg" : ""}${sp.s - Math.max(su, arrives(e) ? 30 : 0) <= T0 ? " t0" : ""}" style="top:${Y(sp.s - Math.max(su, arrives(e) ? 30 : 0))}" title="${esc(um ? "Umbau vorher: " + um.from + " → " + fu : "Möblierung: " + fu)}">${um ? "⇄" : ""}${FURN_SYM[fu]}</span>`);
     const lv = egLevel(e); if (lv >= 2 && e.room !== "Gesamtes EG" && rs.some(r => EG.includes(r))) EG.filter(r => !rs.includes(r)).forEach(r => { const k = lanes.indexOf(r); if (k >= 0) cols[k].push(`<div class="vexcl${lv === 2 ? " ex2" : ""}" style="top:${Y(sp.s)};height:${H(sp.s, sp.e)}" title="${esc(eglName(lv) + ": " + evName(e))}"></div>`); });
-    if (arrives(e)){ const s = t2m(e.start); ci.push(`<i style="top:${Y(s - 30)};height:${H(s - 30, checkinOf(e) === "durchgehend" ? sp.e : s)}" class="${checkinOf(e) === "durchgehend" ? "run" : ""}" title="${esc("Check-in " + evName(e))}"></i>`); }
+    if (arrives(e)){ const s = t2m(e.start); ci.push(`<i style="top:${Y(s - CI_MIN)};height:${H(s - CI_MIN, checkinOf(e) === "durchgehend" ? sp.e : s)}" class="${checkinOf(e) === "durchgehend" ? "run" : ""}" title="${esc("Check-in " + evName(e))}"></i>`); }
   }
   const hours = []; for (let h = T0/60; h <= T1/60; h++) hours.push(`<span style="top:${Y(h*60)}">${h}</span>`);
   const lines = []; for (let h = T0/60 + 1; h < T1/60; h++) lines.push(`<i style="top:${Y(h*60)}"></i>`);
@@ -2355,7 +2549,7 @@ function mobDetail(id){
   const e = S.events[id]; if (!e) return;
   const sp = span(e), ph = endPh(e), t = theme(e), ser = serOf(e), row = (k, v) => v ? `<dt>${esc(k)}</dt><dd>${v}</dd>` : "";
   const s0 = sp ? sp.s : null, su = setupOf(e), af = afterOf(e), td = teardownOf(e), fu = furnOf(e), um = UMB.get(e.id), dl = deadlineOf(e), lv = egLevel(e), bk = backupOf(e);
-  const ci = arrives(e) ? (checkinOf(e) === "durchgehend" ? "durchgehend ab " + m2t(s0 - 30) : "ab " + m2t(s0 - 30) + " (30 Min vorher)") : (sp && !e.allDay ? "keiner" : "");
+  const ci = arrives(e) ? (checkinOf(e) === "durchgehend" ? "durchgehend ab " + m2t(s0 - CI_MIN) : "ab " + m2t(s0 - CI_MIN) + " (" + CI_MIN + " Min vorher)") : (sp && !e.allDay ? "keiner" : "");
   const iss = issuesAll(e.id);
   const issH = iss.length ? `<ul class="miss">${iss.map(x => `<li class="${x.l}${x.acc ? " acc" : ""}"><b>${x.l === "err" ? "Fehler" : x.l === "warn" ? "Hinweis" : "Info"}${x.acc ? " (akzeptiert)" : ""}:</b> ${esc(mobSan(x.t))}</li>`).join("")}</ul>` : `<p class="hint">Keine Prüfhinweise.</p>`;
   const html = `<div class="mshd"><i class="sw" style="background:${e.kind === "vermietung" ? "var(--muted)" : t[0]}"></i><h3>${esc(evName(e))}</h3><button class="btn sm" data-mclose="1" aria-label="Schließen">✕</button></div>
@@ -2369,7 +2563,7 @@ function mobDetail(id){
   sh.innerHTML = `<div class="msc" data-mclose="1"></div><div class="msp">${html}</div>`; sh.hidden = false;
 }
 /* Notiz per E-Mail (das Tool selbst nimmt mobil keine Eingaben an) */
-const NOTE_MAIL = "veranstaltung@survivors-home.de";
+let NOTE_MAIL = "veranstaltung@survivors-home.de"; /* Einstellungen */
 function mobNoteBtn(e){
   const when = mobDLab(e.date) + (e.allDay ? ", ganztägig" : e.start ? ", " + e.start + " Uhr" : "");
   const subj = `Notiz zu VA ${evName(e)} (${when})`, body = `Veranstaltung: ${evName(e)}\nDatum: ${when}\n\nNotiz:\n`;
@@ -2416,6 +2610,7 @@ document.addEventListener("click", ev => { const a = ev.target.closest("a.mnote"
 /* ---------- Start ---------- */
 (function init(){
   try { const v = localStorage.getItem("shp-view"); if (v && VIEWS[v]) UI.view = v === "anfragen" ? "referenten" : v; UI.yearDetail = localStorage.getItem("shp-ydet") === "1"; UI.yPos = localStorage.getItem("shp-ypos") || null; UI.week = localStorage.getItem("shp-week") || UI.week; UI.yRestore = UI.view === "jahr"; } catch(e){}
+  applySettings();
   mobInit();
   if (OFFLINE) return offlineInit();
   render();
@@ -2426,7 +2621,7 @@ document.addEventListener("click", ev => { const a = ev.target.closest("a.mnote"
     if (!d){ $("#banner").hidden = false; $("#banner").textContent = "Gemeinsame Datenbank nicht verfügbar. Bitte mit dem SURVIVORS HOME Konto anmelden."; S.loaded = true; render(); return; }
     setTimeout(() => { if (!S.loaded){ S.loaded = true; render(); } }, 8000);
     db = d;
-    const pending = new Set(["series","referents","events","absences","weeks","rounds","msgs"]);
+    const pending = new Set(["series","referents","events","absences","weeks","rounds","msgs","settings"]);
     const done = k => { pending.delete(k); if (!pending.size){ S.loaded = true; } render(); };
     const sub = (col, key) => db.collection(col).onSnapshot(snap => {
       const m = {}; snap.docs.forEach(x => { const o = normRooms(Object.assign({}, x.data())); o.id = x.id; m[x.id] = o; }); S[key] = m; done(key);
@@ -2434,6 +2629,8 @@ document.addEventListener("click", ev => { const a = ev.target.closest("a.mnote"
     sub("series","series"); sub("referents","referents"); sub("events","events"); sub("absences","absences"); sub("rounds","rounds"); sub("msgs","msgs");
     db.doc("meta/accepted").onSnapshot(snap => { S.accepted = snap.exists ? Object.assign({}, (snap.data()||{}).items||{}) : {}; render(); }, () => {});
     db.doc("meta/team").onSnapshot(snap => { const t = snap.exists ? (snap.data() || {}) : {}; S.teamPass = t.pass || ""; S.teamSet = t.set || ""; if (UI.view === "sicherung") render(); }, () => {});
+    db.doc("meta/websync").onSnapshot(snap => { S.websync = snap.exists ? (snap.data() || {}) : null; S.wsLoaded = true; if (S.loaded) render(); }, () => {});
+    db.doc("meta/settings").onSnapshot(snap => { S.settings = snap.exists ? Object.assign({}, snap.data() || {}) : {}; applySettings(); done("settings"); }, () => done("settings"));
     db.doc("meta/weeks").onSnapshot(snap => { S.weeks = snap.exists ? Object.assign({}, (snap.data()||{}).status||{}) : {}; done("weeks"); }, () => {});
   });
 })();

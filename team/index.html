@@ -251,7 +251,7 @@ table.list{border-collapse:collapse;width:100%;font-size:.88rem}
 .form label.cb{display:flex;align-items:center;gap:8px;font-weight:700;color:var(--muted);font-size:.8rem}
 .form .lbl{display:grid;gap:4px;font-size:.8rem;color:var(--muted);font-weight:700}
 .form .wds{display:flex;gap:4px;flex-wrap:wrap}
-.form .wds label{display:inline-flex;align-items:center;gap:3px;font-weight:400;color:var(--ink);font-size:.85rem;border:1px solid var(--line);padding:2px 7px;border-radius:999px}
+.form .wds label{display:inline-flex;align-items:center;gap:3px;font-weight:700;color:var(--muted);font-size:.8rem;border:1px solid var(--line);padding:2px 7px;border-radius:999px}
 .form select[multiple]{min-height:120px}
 .form input,.form select,.form textarea{width:100%}
 .live{margin-top:14px;display:grid;gap:4px}
@@ -296,6 +296,10 @@ table.list{border-collapse:collapse;width:100%;font-size:.88rem}
 .zone::after{content:"";position:absolute;inset:0;pointer-events:none;background:var(--ants);background-size:8px 2px,8px 2px,2px 8px,2px 8px;background-repeat:repeat-x,repeat-x,repeat-y,repeat-y;background-position:0 0,0 100%,0 0,100% 0;animation:ants .5s linear infinite}
 @media (prefers-reduced-motion: reduce){ .zone::after{animation:none} }
 .ci.run{border-left:0;background:repeating-linear-gradient(90deg,var(--surface-2) 0 6px,transparent 6px 9px);opacity:.9}
+/* Einstellungen: Unterreiter */
+.setnav{margin:0 0 14px}
+.form.cfg{max-width:860px} .form.cfg .full,.form.cfg .cfgbtn{grid-column:1/-1} .form.cfg .hint{font-weight:400} .form.cfg label{grid-template-rows:auto 1fr auto}
+.cfgfeier td{vertical-align:top} .cfgday{display:inline-block;margin:0 14px 4px 0;white-space:nowrap}
 /* Sicherung / Offline */
 #banner.offbar{background:var(--info-bg);color:var(--ink);border-left:6px solid var(--violet);display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
 #banner.offbar .offd{color:var(--warn);font-weight:700}
@@ -422,6 +426,7 @@ table.list{border-collapse:collapse;width:100%;font-size:.88rem}
 /* Fehlerzähler am Reiter */
 #tabs button{position:relative}
 .nbadge{position:absolute;top:-6px;right:-8px;min-width:1.35rem;height:1.35rem;padding:0 5px;border-radius:999px;background:#e5322d;color:#fff;font-size:.72rem;font-weight:700;line-height:1.35rem;text-align:center;box-shadow:0 0 0 2px var(--paper);font-family:var(--f-body)}
+.nbadge.hint{background:#f5c400;color:#3c3c3b} .nbadge.peek{right:-16px;padding:0} #tabs button:has(.nbadge){margin-right:6px} #tabs button:has(.peek){margin-right:14px}
 /* Live-Markierung in der Online-Zeile */
 .livem{position:absolute;margin:0;display:block;top:6px;bottom:6px;border:1.5px solid var(--c);border-radius:4px;background:color-mix(in srgb, var(--c) 14%, var(--paper));color:var(--ink);font-size:.58rem;font-weight:700;padding:1px 4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;text-align:left;cursor:pointer}
 h3.sh{font-family:var(--f-display);font-size:1rem;margin:18px 0 8px;color:var(--violet)}
@@ -432,7 +437,7 @@ h3.sh{font-family:var(--f-display);font-size:1rem;margin:18px 0 8px;color:var(--
 .blk.st-anf{background:repeating-linear-gradient(135deg,color-mix(in srgb, var(--c) 58%, var(--paper)) 0 6px,color-mix(in srgb, var(--c) 38%, var(--paper)) 6px 12px)!important;border:1.5px solid var(--c);color:var(--ink)!important}
 .blk.st-fix{box-shadow:inset 0 0 0 2px #fff,inset 0 0 0 3px var(--c)}
 .blk.st-abg{background:var(--surface-2)!important;color:var(--muted)!important;text-decoration:line-through}
-.blk .smk{position:absolute;right:3px;top:2px;font-size:.5rem;font-weight:800;background:#fff;color:var(--ink);border-radius:6px;padding:0 4px;line-height:1.5}
+.blk .smk{position:absolute;right:3px;top:2px;font-size:.5rem;font-weight:800;background:#fff;color:#3c3c3b;border-radius:6px;padding:0 4px;line-height:1.5}
 .blk .dlb{position:absolute;right:3px;bottom:2px;font-size:.5rem;font-weight:800;color:#fff;border-radius:6px;padding:0 4px;line-height:1.5}
 .blk .dlb.warn{background:#e8a200} .blk .dlb.err{background:#e5322d}
 /* Jahresraster: Fristen-Zustand je Tag/Woche, Vergangenheit */
@@ -459,7 +464,8 @@ h3.sh{font-family:var(--f-display);font-size:1rem;margin:18px 0 8px;color:var(--
 #sentask h3{margin:0 0 10px;font-family:var(--f-display);color:var(--violet);font-size:1.15rem} #sentask p{margin:0 0 10px} #sentask .sa-act{display:flex;gap:10px;margin-top:14px}
 .pcell{cursor:pointer} .pcell:hover{background:var(--surface)} .pcell:hover .rlink{text-decoration:underline}
 .ptab col.c-p{width:16%} .ptab col.c-k{width:17%}
-.ccell{overflow-wrap:anywhere} a.clink{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:2px} a.clink:hover{color:var(--violet);text-decoration-color:var(--violet)} a.clink[href^="tel:"]{white-space:nowrap}
+.ccell{overflow-wrap:anywhere} a.clink{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:2px} .wsbar{padding:6px 20px;border-left:4px solid var(--err);background:var(--err-bg);color:var(--ink);font-size:.85rem} a.webl{text-decoration:none;font-weight:700;color:var(--violet)} .webinfo{margin-top:-6px} .wsstand{margin:14px 0 6px}
+a.clink:hover{color:var(--violet);text-decoration-color:var(--violet)} a.clink[href^="tel:"]{white-space:nowrap}
 /* Personen-Dialog groß: zwei Spalten, Abschnitte über die volle Breite */
 @media (min-width:1400px){ body.dwide.dref #f.form{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:none} body.dwide.dref #f>.sec.full,body.dwide.dref #f>.full{grid-column:1/-1} body.dwide.dref #f .sec .form{grid-template-columns:repeat(2,minmax(0,1fr))} }
 .rtab td{vertical-align:top}
@@ -760,11 +766,11 @@ body.team [data-mobon]{display:none!important}
       <button data-view="pruefung">Prüfung</button>
       <button data-view="reihen">Reihen</button>
       <button data-view="referenten">Referenten</button>
-      <button data-view="abwesend">Abwesenheiten</button>
-      <button data-view="sicherung">Sicherung</button>
+      <button data-view="einstellungen">Einstellungen</button>
     </nav>
   </div>
   <div class="kpis" id="kpis"></div>
+  <div id="wsslot" hidden></div>
   <div id="hslot" hidden></div>
   <div id="banner" hidden></div>
 </header>
@@ -792,7 +798,7 @@ body.team [data-mobon]{display:none!important}
   function start(data){
     window.__SHP_OFFLINE = true; window.__SHP_TEAM = true; window.__SHP_DATA = data;
     document.getElementById("lock").hidden = true;
-    const s = document.createElement("script"); s.src = "app.js?v=110"; document.body.appendChild(s);
+    const s = document.createElement("script"); s.src = "app.js?v=117"; document.body.appendChild(s);
   }
   async function tryPw(pw, remember){ try { const d = await open(pw); if (remember){ try { localStorage.setItem(KEY, pw); } catch(e){} } start(d); return true; } catch(e){ return false; } }
   document.getElementById("lkf").addEventListener("submit", async ev => { ev.preventDefault(); const pw = document.getElementById("lkpw").value; if (!(await tryPw(pw, true))) show(true); });

@@ -26,7 +26,7 @@ const p2 = n => String(n).padStart(2, "0");
 const created = `${berlin.getFullYear()}-${p2(berlin.getMonth()+1)}-${p2(berlin.getDate())}T${p2(berlin.getHours())}:${p2(berlin.getMinutes())}:00`;
 const backup = {format:"survivors-home-programmplaner-backup", version:1, created, source:"team",
   collections:{events, series, referents, absences, rounds:{}, msgs:{}},
-  meta:{accepted:{items:(meta.accepted || {}).items || {}}, weeks:{status:(meta.weeks || {}).status || {}}}};
+  meta:{accepted:{items:(meta.accepted || {}).items || {}}, weeks:{status:(meta.weeks || {}).status || {}}, ...(meta.settings ? {settings:Object.fromEntries(Object.entries(meta.settings).filter(([k]) => k !== "id"))} : {})}};
 const iter = 310000, salt = crypto.randomBytes(16), iv = crypto.randomBytes(12);
 const key = crypto.pbkdf2Sync(pass, salt, iter, 32, "sha256");
 const c = crypto.createCipheriv("aes-256-gcm", key, iv);
