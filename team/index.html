@@ -808,7 +808,7 @@ body.clean #tabs,body.clean #kpis,body.clean #wsslot,body.clean #hslot{display:n
 #banner.offbar.cold{border-left-color:var(--err)}
 .ctl{max-width:780px;margin:8px 0 12px;border-left:2px solid var(--line);margin-left:6px}
 .ctrow{display:grid;grid-template-columns:92px minmax(0,1fr);gap:8px;padding:0 0 10px;position:relative}
-.ctrow::before{content:"";position:absolute;z-index:1;left:-7px;top:12px;width:12px;height:12px;border-radius:50%;background:#662483;border:2px solid var(--paper)}
+.cdot{position:absolute;z-index:2;left:-7px;top:12px;width:12px;height:12px;border-radius:50%;background:#662483;border:2px solid var(--paper)}
 .crail{position:relative;margin-left:0;margin-bottom:-10px}
 .cseg{position:absolute;left:-6px;width:10px;border-radius:5px;background:#9a9a99}
 .cseg.keep{background:#AC3F90}
@@ -823,9 +823,11 @@ body.clean #tabs,body.clean #kpis,body.clean #wsslot,body.clean #hslot{display:n
 .cpers .ic{width:.95em;height:.95em;margin-right:-.12em}
 .cmeta{display:flex;flex-wrap:wrap;gap:2px 14px;margin-top:2px;color:var(--ink)}
 .cmeta>span{min-width:0}
+.cmeta>.cmrow{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:2px 12px}
+.cmrow>span{min-width:0}
+.cbed{white-space:nowrap}
 .cbed .bed{margin-right:3px;vertical-align:-.15em}
 .cbed.chg b{color:#AC3F90}
-.cfree{display:inline-block;font-size:.8rem;font-weight:700;color:#662483;border:1px solid #662483;border-radius:999px;padding:0 7px;margin-left:4px;white-space:nowrap}
 .clab .ic{width:1em;height:1em;vertical-align:-.18em}
 .clab .cpers .ic{width:.85em;height:.85em}
 table.cstays th .ic{width:1.1em;height:1.1em;vertical-align:-.2em}
@@ -901,7 +903,7 @@ details.pastl summary{cursor:pointer;color:var(--muted)}
   function start(data){
     window.__SHP_OFFLINE = true; window.__SHP_TEAM = true; window.__SHP_DATA = data;
     document.getElementById("lock").hidden = true;
-    const s = document.createElement("script"); s.src = "app.js?v=128"; document.body.appendChild(s);
+    const s = document.createElement("script"); s.src = "app.js?v=129"; document.body.appendChild(s);
   }
   async function tryPw(pw, remember){ try { const d = await open(pw); if (remember){ try { localStorage.setItem(KEY, pw); } catch(e){} } start(d); return true; } catch(e){ return false; } }
   document.getElementById("lkf").addEventListener("submit", async ev => { ev.preventDefault(); const pw = document.getElementById("lkpw").value; if (!(await tryPw(pw, true))) show(true); });
