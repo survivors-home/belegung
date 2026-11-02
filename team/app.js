@@ -2757,7 +2757,7 @@ document.addEventListener("click", ev => { const a = ev.target.closest("a.mnote"
     if (Math.abs(dx) > 70 && Math.abs(dy) < 50 && !($("#msheet") && !$("#msheet").hidden)) mobGo((dx < 0 ? 1 : -1) * (MB.mode === "tag" ? 1 : 7)); }, {passive:true});
 })();
 
-/* ---------- Reinigung (v125, Zeitleiste v126): Einsätze der Reinigungskräfte, Aufgaben DG/EG ---------- */
+/* ---------- Reinigung (v125, Zeitleiste v126, Icons v127): Einsätze der Reinigungskräfte, Aufgaben DG/EG ---------- */
 /* Reinigungszeiten (Einstellungen → Reinigung, meta/settings.cleanSlots): Standard Mo und Fr 9–12 Uhr (Sebastian 02.11.2026).
    Fällt ein Einsatz auf einen Feiertag, wird er auf den Tag danach verlegt (Werktag ohne Feiertag), sonst auf den Tag davor. */
 const CLEAN = !!window.__SHP_CLEAN; /* CLEAN: Reinigungsseite auf GitHub (nur Ansicht „Reinigung“, Daten eingebettet, ohne Namen) */
@@ -2770,7 +2770,12 @@ const cleanKey = x => stayName(x).toLowerCase();
 const workDay = d => wdOf(d) >= 1 && wdOf(d) <= 5 && !FEIER[d];
 const stayN = x => Math.min(4, Math.max(1, +x.persons || 1));
 const persTxt = n => n + (n === 1 ? " Person" : " Personen");
-const absTxt = m => { const d = S_(Math.floor(m / 1440)); return WD[wdOf(d)] + " " + fmtY(d) + " " + m2t(m % 1440); };
+const absTxt = m => { const d = S_(Math.floor(m / 1440)); return WD[wdOf(d)] + " " + fmt(d) + " " + m2t(m % 1440); };
+/* Icons (v127, Sebastian 02.11.2026): Person, Anreise = Tür mit Pfeil hinein, Abreise = Tür mit Pfeil heraus; Bett = BED */
+const IC_P = `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><g fill="currentColor"><circle cx="12" cy="7" r="4.2"/><path d="M3.5 22c0-4.9 3.8-8.6 8.5-8.6s8.5 3.7 8.5 8.6z"/></g></svg>`;
+const IC_IN = `<svg class="ic" viewBox="0 0 24 24" aria-label="Anreise" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3h6a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1h-6"/><path d="M2.5 12h12"/><path d="M10.5 7.5l4.5 4.5-4.5 4.5"/></g></svg>`;
+const IC_OUT = `<svg class="ic" viewBox="0 0 24 24" aria-label="Abreise" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 3H5a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h6"/><path d="M9.5 12h12"/><path d="M17 7.5l4.5 4.5-4.5 4.5"/></g></svg>`;
+const persIc = n => `<span class="cpers" title="${persTxt(n)}" aria-label="${persTxt(n)}">${IC_P.repeat(n)}</span>`;
 function cleanSlots(d0, d1){
   const cfg = cleanCfg(), out = [];
   for (let n = D(d0) - 3; n <= D(d1) + 3; n++){
@@ -2806,22 +2811,24 @@ function cleanPlan(d0, d1){
 /* Gast im DG während des Einsatzes */
 const cleanOcc = s => stayList().map(x => ({x, ab:stayAbs(x)})).filter(q => q.ab[0] < s.e && s.s < q.ab[1]);
 const vmTag = x => x && x.status !== "gebucht" ? ` <span class="stb vm">vorgemerkt</span>` : "";
-function cleanTaskLine(t, s){
-  const ab = s && t.from > s.s ? ` <b>ab ${m2t(t.from % 1440)} Uhr</b>` : "";
-  if (t.area === "EG"){ const e = t.ev, sp = span(e); return `<li class="cl-eg"><span class="ctag eg">EG</span> Küche/EG reinigen nach Veranstaltung ${WD[wdOf(e.date)]} ${fmtY(e.date)} ${e.allDay ? "ganztägig" : m2t(sp.s) + "–" + m2t(sp.e) + " Uhr"}${e.room ? " · " + esc(e.room) : ""}${ab}</li>`; }
-  const a = t.stay, p = t.prev, arr = `Anreise ${absTxt(t.to)}${vmTag(a)}`;
-  if (t.kind === "bett") return `<li class="cl-dg"><span class="ctag dg">DG</span> <b>Betten umstellen: ${t.np} → ${persTxt(t.n)}</b> · derselbe Gast kommt wieder, keine Zwischenreinigung nötig · ${arr}${ab}</li>`;
-  const bed = p && t.np !== t.n ? ` · <b>Bettenwechsel: ${t.np} → ${persTxt(t.n)}</b>` : ` · Betten für ${persTxt(t.n)}`;
-  return `<li class="cl-dg"><span class="ctag dg">DG</span> <b>Gastwechsel – DG reinigen</b>${bed} · ${p ? "Abreise " + absTxt(t.from) + " · " : ""}${arr}${ab}</li>`;
+function cleanTaskLine(t, s, both){
+  const ab = s && t.from > s.s ? ` <span class="cfree">frei ab ${m2t(t.from % 1440)}</span>` : "";
+  const tag = a => both ? `<span class="ctag ${a.toLowerCase()}">${a}</span> ` : "";
+  if (t.area === "EG"){ const e = t.ev, sp = span(e);
+    return `<li class="cl-eg">${tag("EG")}<b>Küche/EG reinigen</b>${ab}<div class="cmeta"><span>nach Veranstaltung ${WD[wdOf(e.date)]} ${fmt(e.date)} ${e.allDay ? "ganztägig" : m2t(sp.s) + "–" + m2t(sp.e)}</span>${e.room ? `<span>${esc(e.room)}</span>` : ""}</div></li>`; }
+  const a = t.stay, p = t.prev, inn = `<span>${IC_IN} ${absTxt(t.to)}${vmTag(a)}</span>`;
+  if (t.kind === "bett") return `<li class="cl-dg">${tag("DG")}<b>Betten umstellen</b> <span class="notes">– derselbe Gast kommt wieder, keine Reinigung nötig</span>${ab}<div class="cmeta"><span class="cbed">${BED}${persIc(t.np)} → <b>${persIc(t.n)}</b></span>${inn}</div></li>`;
+  const bed = p && t.np !== t.n ? `<span class="cbed chg">${BED}${persIc(t.np)} → <b>${persIc(t.n)}</b></span>` : `<span class="cbed">${BED}${persIc(t.n)}</span>`;
+  return `<li class="cl-dg">${tag("DG")}<b>Gastwechsel – reinigen</b>${ab}<div class="cmeta">${p ? `<span>${IC_OUT} ${absTxt(t.from)}</span>` : ""}${inn}${bed}</div></li>`;
 }
 function cleanCard(s, today){
   const dg = s.dg.length, eg = s.eg.length, occ = cleanOcc(s);
   const badge = dg && eg ? `<span class="cbadge both">DG und EG</span>` : dg ? `<span class="cbadge dg">DG</span>` : eg ? `<span class="cbadge eg">EG</span>` : `<span class="cbadge free">nach Bedarf</span>`;
   const occL = occ.map(q => { const leave = q.ab[1] > s.s && q.ab[1] < s.e, arrive = q.ab[0] > s.s && q.ab[0] < s.e;
-    return `<li class="cl-occ">${BED} ${leave ? `Gast reist um ${m2t(q.ab[1] % 1440)} Uhr ab – DG erst danach betreten` : arrive ? `Gast reist um ${m2t(q.ab[0] % 1440)} Uhr an – DG bis dahin fertig` : `DG belegt (Gast bis ${absTxt(q.ab[1])}) – nicht betreten`}${vmTag(q.x)}</li>`; }).join("");
-  const lines = s.dg.map(t => cleanTaskLine(t, s)).join("") + s.eg.map(t => cleanTaskLine(t, s)).join("") + occL;
+    return `<li class="cl-occ">${leave ? `${IC_OUT} Gast reist um ${m2t(q.ab[1] % 1440)} ab – DG erst danach betreten` : arrive ? `${IC_IN} Gast reist um ${m2t(q.ab[0] % 1440)} an – DG bis dahin fertig` : `${BED} DG belegt bis ${absTxt(q.ab[1])} – nicht betreten`}${vmTag(q.x)}</li>`; }).join("");
+  const lines = s.dg.map(t => cleanTaskLine(t, s, dg && eg)).join("") + s.eg.map(t => cleanTaskLine(t, s, dg && eg)).join("") + occL;
   const mv = s.moved ? ` <span class="lv warn">verlegt: ${esc(WD[wdOf(s.orig)])} ${fmt(s.orig)} ist ${esc(s.moved)} – bitte absprechen</span>` : "";
-  return `<section class="ccard${s.date === today ? " today" : ""}${dg || eg ? "" : " idle"}"><h3><span>${WD[wdOf(s.date)]} ${s.date.slice(0, 4) === today.slice(0, 4) ? fmt(s.date) : fmtY(s.date)} <small class="ctime">${s.from}–${s.to} Uhr${s.date === today ? " · heute" : ""}</small></span>${badge}</h3>${mv}
+  return `<section class="ccard${s.date === today ? " today" : ""}${dg || eg ? "" : " idle"}"><h3><span>${WD[wdOf(s.date)]} ${s.date.slice(0, 4) === today.slice(0, 4) ? fmt(s.date) : fmtY(s.date)} <small class="ctime">${s.from}–${s.to}${s.date === today ? " · heute" : ""}</small></span>${badge}</h3>${mv}
     ${lines ? `<ul class="clist">${lines}</ul>` : ""}</section>`;
 }
 /* Zeitleiste links (v126, Sebastian 02.11.2026): je Einsatz-Zeile der Zeitraum bis zum nächsten Einsatz; Balken = Gast im DG.
@@ -2832,10 +2839,10 @@ function cleanRail(a, b, first){
   const LH = 28, span = Math.max(1, b - a), pc = m => Math.min(100, Math.max(0, (m - a) / span * 100)), segs = [], labs = [];
   stayList().forEach(x => { const [s, e] = stayAbs(x); if (e <= a || s >= b) return;
     const keep = cleanKeep(x), cls = (keep ? " keep" : "") + (x.status !== "gebucht" ? " vm" : ""), nm = keep ? esc(stayName(x)) : "Gast";
-    segs.push(`<i class="cseg${cls}" style="top:${pc(s).toFixed(1)}%;bottom:${(100 - pc(e)).toFixed(1)}%"></i>`);
-    if (s >= a) labs.push({p:pc(s), h:`<b>${nm}</b> · ${stayN(x)} P.<br>an ${dShort(s)}`, cls});
-    else if (first) labs.push({p:0, h:`<b>${nm}</b> · ${stayN(x)} P.<br>seit ${dShort(s)}`, cls});
-    if (e < b) labs.push({p:pc(e), h:`ab ${dShort(e)}`, cls:cls + " out"}); });
+    segs.push(`<i class="cseg${cls}${s < a ? " ct" : ""}${e > b ? " cb" : ""}" style="top:${pc(s).toFixed(1)}%;bottom:${(100 - pc(e)).toFixed(1)}%"></i>`);
+    if (s >= a) labs.push({p:pc(s), h:`<b>${nm}</b> ${persIc(stayN(x))}<br>${IC_IN} ${dShort(s)}`, cls});
+    else if (first) labs.push({p:0, h:`<b>${nm}</b> ${persIc(stayN(x))}<br>${IC_IN} seit ${dShort(s)}`, cls});
+    if (e < b) labs.push({p:pc(e), h:`${IC_OUT} ${dShort(e)}`, cls:cls + " out"}); });
   labs.sort((x, y) => x.p - y.p);
   const lab = labs.map((l, i) => `<span class="clab${l.cls}" style="top:max(${labs.slice(0, i + 1).map((m, j) => `calc(${m.p.toFixed(1)}% + ${(i - j) * LH}px)`).join(", ")})">${l.h}</span>`).join("");
   return {html:`<div class="crail">${segs.join("")}${lab}</div>`, min:labs.length * LH + 6};
@@ -2843,21 +2850,21 @@ function cleanRail(a, b, first){
 function viewReinigung(){
   const today = todayStr(), wk = UI.cleanWeeks || 8, d1 = S_(D(today) + wk * 7), dp = S_(D(today) - 28);
   const plan = cleanPlan(dp, d1), next = plan.slots.filter(s => s.date >= today), past = plan.slots.filter(s => s.date < today).reverse();
-  const sp = plan.special.filter(t => (t.to === Infinity ? t.from : t.to) >= D(today)*1440).map(t => `<section class="ccard spec"><h3><span>Sondereinsatz nötig</span><span class="cbadge both">${t.area}</span></h3><p class="notes">Kein regulärer Reinigungstermin im Zeitfenster ${t.from > 0 && t.from !== -Infinity ? "ab " + absTxt(t.from) : ""}${t.to !== Infinity ? " bis " + absTxt(t.to) : ""} – bitte mit SURVIVORS HOME absprechen.</p><ul class="clist">${cleanTaskLine(t, null)}</ul></section>`).join("");
+  const sp = plan.special.filter(t => (t.to === Infinity ? t.from : t.to) >= D(today)*1440).map(t => `<section class="ccard spec"><h3><span>Sondereinsatz nötig</span><span class="cbadge both">${t.area}</span></h3><p class="notes">Kein regulärer Reinigungstermin im Zeitfenster ${t.from > 0 && t.from !== -Infinity ? "ab " + absTxt(t.from) : ""}${t.to !== Infinity ? " bis " + absTxt(t.to) : ""} – bitte mit uns absprechen.</p><ul class="clist">${cleanTaskLine(t, null, false)}</ul></section>`).join("");
   const cfg = cleanCfg().slice().sort((a, b) => a.wd - b.wd || a.from.localeCompare(b.from)).map(c => WD[c.wd] + " " + c.from + "–" + c.to).join(", ");
   const stays = stayList().filter(x => x.to >= dp);
-  const srow = x => `<tr class="${x.to < today ? "past" : ""}"><td class="t">${WD[wdOf(x.from)]} ${fmtY(x.from)}<br><small>${esc(x.fromT || STAY_IN)} Uhr</small></td><td class="t">${WD[wdOf(x.to)]} ${fmtY(x.to)}<br><small>${esc(x.toT || STAY_OUT)} Uhr</small></td><td class="t">${stayNights(x)}</td><td class="t">${stayN(x)}${vmTag(x) ? "<br>" + vmTag(x) : ""}</td></tr>`;
-  const help = `<b>Reinigung</b><ul><li>Reinigungstermine: ${esc(cfg)}${CLEAN ? "" : " (änderbar unter Einstellungen → Reinigung)"}. Feiertag: Einsatz am Tag danach, sonst am Tag davor.</li><li><b>DG</b>: bei Gastwechsel reinigen und Betten für die neue Belegung beziehen; ändert sich die Personenzahl, steht „Bettenwechsel“ dabei. Kommt ein Stammgast ohne Zwischenreinigung${CLEAN ? "" : " (Einstellungen → Reinigung)"} direkt wieder, entfällt die Reinigung; nur bei anderer Personenzahl „Betten umstellen“.</li><li><b>EG</b>: nach jeder Veranstaltung mit Haken „Küchenreinigung“.</li><li>Jede Aufgabe steht beim ersten Reinigungstermin nach der Abreise bzw. Veranstaltung. Liegt kein Termin vor der nächsten Anreise: „Sondereinsatz nötig“.</li><li><b>Zeitleiste links</b>: Balken = Gast im DG zwischen zwei Reinigungsterminen (an = Anreise, ab = Abreise). Pink mit Namen: Gäste ohne Zwischenreinigung; grau: wechselnde Gäste (ohne Namen); gestrichelt: vorgemerkt.</li><li>„nach Bedarf“: keine besondere Aufgabe – EG oder DG nach Bedarf.</li><li>Vorgemerkte Übernachtungen sind noch nicht sicher.</li></ul>`;
+  const srow = x => `<tr class="${x.to < today ? "past" : ""}"><td class="t">${WD[wdOf(x.from)]} ${fmt(x.from)}<br><small>${esc(x.fromT || STAY_IN)} Uhr</small></td><td class="t">${WD[wdOf(x.to)]} ${fmt(x.to)}<br><small>${esc(x.toT || STAY_OUT)} Uhr</small></td><td class="t">${stayNights(x)}</td><td class="t">${stayN(x)}${vmTag(x) ? "<br>" + vmTag(x) : ""}</td></tr>`;
+  const help = `<b>Reinigung</b><ul><li>Reinigungstermine: ${esc(cfg)}${CLEAN ? "" : " (änderbar unter Einstellungen → Reinigung)"}. Feiertag: Einsatz am Tag danach, sonst am Tag davor.</li><li><b>DG</b>: bei Gastwechsel reinigen und Betten für die neue Belegung beziehen; ändert sich die Personenzahl, steht „Bettenwechsel“ dabei. Kommt ein Stammgast ohne Zwischenreinigung${CLEAN ? "" : " (Einstellungen → Reinigung)"} direkt wieder, entfällt die Reinigung; nur bei anderer Personenzahl „Betten umstellen“.</li><li><b>EG</b>: nach jeder Veranstaltung mit Haken „Küchenreinigung“.</li><li>Jede Aufgabe steht beim ersten Reinigungstermin nach der Abreise bzw. Veranstaltung. Liegt kein Termin vor der nächsten Anreise: „Sondereinsatz nötig“.</li><li><b>Symbole</b>: ${IC_IN} Anreise, ${IC_OUT} Abreise, ${BED} Betten, ${IC_P} je Person; „frei ab“ = DG bzw. Küche erst ab dieser Uhrzeit frei.</li><li><b>Zeitleiste links</b>: Balken = Gast im DG zwischen zwei Reinigungsterminen. Pink mit Namen: Gäste ohne Zwischenreinigung; grau: wechselnde Gäste (ohne Namen); gestrichelt: vorgemerkt.</li><li>„nach Bedarf“: keine besondere Aufgabe – EG oder DG nach Bedarf.</li><li>Vorgemerkte Übernachtungen sind noch nicht sicher.</li></ul>`;
   const link = CLEAN ? "" : `<p class="notes">Diese Ansicht sehen die Reinigungskräfte unter <a href="${esc(CLEAN_URL)}" target="_blank" rel="noopener">${esc(CLEAN_URL.replace("https://", ""))}</a> (mit eigenem Passwort; Namen nur von Gästen ohne Zwischenreinigung; Aktualisierung mit der Routine).</p>`;
-  return `${CLEAN ? "" : `<div class="head"><h2>Reinigung ${qh(help)}</h2><span class="notes">Reinigungstermine: ${esc(cfg)}</span></div>`}${link}
+  if (CLEAN) cleanHead(help);
+  return `${CLEAN ? "" : `<div class="head"><h2>Reinigungstermine ${qh(help)}</h2><span class="notes">${esc(cfg)}</span></div>`}${link}
   ${sp}
-  <h3 class="sh">Nächste Reinigungstermine${CLEAN ? " " + qh(help) : ""}</h3>
   ${next.length ? `<div class="ctl">${next.map((s, i) => { const nx = next[i + 1] || cleanSlots(S_(D(s.date) + 1), S_(D(s.date) + 21))[0], r = cleanRail(s.s, nx ? nx.s : s.s + 4*1440, i === 0);
     return `<div class="ctrow" style="min-height:${r.min}px">${r.html}${cleanCard(s, today)}</div>`; }).join("")}</div>` : `<div class="empty">Keine Reinigungstermine im Zeitraum.</div>`}
   <p><button class="btn" data-cmore="1">weitere 8 Wochen anzeigen</button></p>
   ${past.length ? `<details class="pastl"><summary>Vergangene Reinigungstermine (letzte 4 Wochen, ${past.length})</summary><div class="cgrid">${past.map(s => cleanCard(s, today)).join("")}</div></details>` : ""}
   <h3 class="sh">${BED} Belegung Dachgeschoss</h3>
-  ${stays.length ? `<div class="scroll"><table class="list stays cstays"><thead><tr><th>Anreise</th><th>Abreise</th><th>Nächte</th><th>Pers.</th></tr></thead><tbody>${stays.map(srow).join("")}</tbody></table></div><p class="notes">„vorgemerkt“ = noch nicht sicher; ohne Kennzeichen = gebucht.</p>` : `<div class="empty">Keine Übernachtungen eingetragen.</div>`}`;
+  ${stays.length ? `<div class="scroll"><table class="list stays cstays"><thead><tr><th>${IC_IN} Anreise</th><th>${IC_OUT} Abreise</th><th>Nächte</th><th>${IC_P} Pers.</th></tr></thead><tbody>${stays.map(srow).join("")}</tbody></table></div><p class="notes">„vorgemerkt“ = noch nicht sicher; ohne Kennzeichen = gebucht.</p>` : `<div class="empty">Keine Übernachtungen eingetragen.</div>`}`;
 }
 /* ---------- Einstellungen: Reinigung ---------- */
 function viewCleanSet(){
@@ -2905,12 +2912,17 @@ document.addEventListener("submit", async ev => {
     if (cleanSame().some(x => x.toLowerCase() === n.toLowerCase())){ toast("Schon eingetragen"); return; }
     return saveSettings({cleanSame: cleanSame().concat([n]).sort((a, b) => a.localeCompare(b, "de"))}, "Gast eingetragen"); }
 });
+/* Reinigungsseite: Seitenkopf „Reinigungstermine ?“ + Stand der Daten (v127) */
+let CLEAN_AT = "";
+function cleanHead(help){
+  const h = $("header.top h1"); if (!h) return; const old = CLEAN_AT && (Date.now() - new Date(CLEAN_AT).getTime()) / 36e5 > 72;
+  h.innerHTML = `<span class="ctitle">Reinigungstermine ${qh(help)}</span><small class="${old ? "cold" : ""}">${CLEAN_AT ? "Stand " + WD[wdOf(CLEAN_AT.slice(0, 10))] + " " + fmt(CLEAN_AT.slice(0, 10)) + " " + esc(CLEAN_AT.slice(11, 16)) + " Uhr" + (old ? " – veraltet, bitte bei uns melden" : "") : "kein Datenstand"} · <a href="#" data-tlogout="1">abmelden</a></small>`;
+}
 /* Reinigungsseite: nur diese Ansicht, ohne Reiter und Kopfzahlen */
 function cleanInit(){
   document.body.classList.add("clean"); document.title = "SH Reinigung";
   const t = window.__SHP_DATA || null; if (validBackup(t)) applyBackupLocal(t); else S.loaded = true;
-  const h = $("header.top h1"), old = t && t.created && (Date.now() - new Date(t.created).getTime()) / 36e5 > 72;
-  if (h) h.innerHTML = `Reinigung<small class="${old ? "cold" : ""}">${t && t.created ? "Stand " + esc(bkWhen(t.created)) + (old ? " – veraltet, bitte bei uns melden" : "") : "kein Datenstand"} · <a href="#" data-tlogout="1">abmelden</a></small>`;
+  CLEAN_AT = t && t.created ? t.created : "";
   UI.view = "reinigung"; render();
 }
 /* ---------- Start ---------- */
