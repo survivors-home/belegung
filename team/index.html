@@ -739,6 +739,41 @@ body.mobmode{margin:0}
 
 /* Team-Seite (GitHub): keine große Ansicht */
 body.team [data-mobon]{display:none!important}
+/* v121 Übernachtungen (Dachgeschoss) und Messen: grau, vorgemerkt blass gestrichelt */
+.stay{position:absolute;top:3px;bottom:3px;z-index:0;border-radius:4px;padding:2px 6px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:.74rem;line-height:1.35;font-weight:700;text-align:left;border:0;background:#8a8a89;color:#fff;cursor:pointer;font-family:inherit}
+.stay small{font-family:var(--f-mono);font-weight:400;opacity:.9;margin-right:4px}
+.bed{width:1.1em;height:1.1em;vertical-align:-.18em;margin-right:4px;flex:none;display:inline-block}
+.sti .bed{width:11px;height:11px;margin:0;vertical-align:0}
+.vstay .vt{display:flex;align-items:center;gap:2px}
+.vstay .bed{width:1.2em;height:1.2em;margin-right:2px}
+table.stays .bed{color:#8a8a89}
+div.stay{cursor:default}
+.stay.vm{background:repeating-linear-gradient(135deg,color-mix(in srgb,#8a8a89 30%,var(--paper)) 0 6px,color-mix(in srgb,#8a8a89 16%,var(--paper)) 6px 12px);border:1.5px dashed #8a8a89;color:var(--ink);font-weight:500}
+.stay.bad{outline:2px solid var(--err);outline-offset:-1px}
+.mob .stay{font-size:.6rem;padding:2px 4px;line-height:1.1}
+.fairm{position:absolute;inset:0;z-index:0;display:flex;align-items:flex-end;justify-content:flex-end;padding:0 4px 1px;font-size:.58rem;color:var(--muted);font-style:italic;background:repeating-linear-gradient(90deg,transparent 0 10px,color-mix(in srgb,var(--muted) 7%,transparent) 10px 20px);pointer-events:auto;overflow:hidden;white-space:nowrap}
+.sti{display:inline-grid;place-items:center;min-width:15px;height:15px;padding:0 2px;border-radius:3px;margin-left:3px;font-size:.6rem;font-weight:700;line-height:1;background:#8a8a89;color:#fff;font-family:var(--f-body)}
+.sti.vm{background:transparent;color:#6f6f6e;border:1px dashed #8a8a89}
+.stb{display:inline-block;padding:1px 7px;border-radius:999px;font-size:.78rem;background:#8a8a89;color:#fff}
+.stb.vm{background:transparent;color:var(--ink);border:1px dashed #8a8a89}
+.lv.sty{background:#8a8a89;color:#fff}
+.lv.sty.vm{background:transparent;color:var(--ink);border:1px dashed #8a8a89}
+.lv.fair{background:transparent;color:var(--muted);font-style:italic}
+.stayf label.cb{display:inline-flex;align-items:center;gap:4px}
+.vstay{left:2px;right:2px;width:auto;white-space:normal;display:flex;flex-direction:column;font-size:.62rem;line-height:1.15;padding:2px 3px;z-index:0}
+table.stays td .lv{margin:1px 2px 1px 0;display:inline-block}
+table.list td.nowrap,table.stays td.t{white-space:nowrap}
+.stayed{border:2px solid #AC3F90;border-radius:8px;padding:8px 12px 2px;margin:6px 0 12px;background:color-mix(in srgb,#AC3F90 6%,var(--paper))}
+.stayed h3{margin:2px 0 6px;font-size:1rem}
+table.list tr.edt td{background:color-mix(in srgb,#AC3F90 12%,var(--paper))}
+table.list tr.edt td:first-child{box-shadow:inset 4px 0 0 #AC3F90}
+.stout{position:absolute;right:5px;top:50%;transform:translateY(-50%);font-size:.66rem;font-weight:700;background:inherit;padding-left:6px}
+.stlab{position:absolute;top:50%;transform:translateY(-50%);margin-left:5px;z-index:0;font-size:.7rem;font-weight:600;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.stay.dep{padding:2px 3px;text-align:center}
+.stay.dep .bed{margin:0}
+.vstay .vout{margin-top:auto;font-weight:700}
+details.pastl{margin:10px 0}
+details.pastl summary{cursor:pointer;color:var(--muted)}
 </style><style>
 #lock{position:fixed;inset:0;overflow:auto;z-index:100;background:var(--paper);display:flex;align-items:center;justify-content:center;padding:24px}
 #lock .lk{width:min(360px,100%);display:grid;grid-template-columns:minmax(0,1fr);gap:12px;text-align:center}
@@ -766,6 +801,7 @@ body.team [data-mobon]{display:none!important}
       <button data-view="pruefung">Prüfung</button>
       <button data-view="reihen">Reihen</button>
       <button data-view="referenten">Referenten</button>
+      <button data-view="uebernachtung">Übernachtungen</button>
       <button data-view="einstellungen">Einstellungen</button>
     </nav>
   </div>
@@ -798,7 +834,7 @@ body.team [data-mobon]{display:none!important}
   function start(data){
     window.__SHP_OFFLINE = true; window.__SHP_TEAM = true; window.__SHP_DATA = data;
     document.getElementById("lock").hidden = true;
-    const s = document.createElement("script"); s.src = "app.js?v=119"; document.body.appendChild(s);
+    const s = document.createElement("script"); s.src = "app.js?v=121"; document.body.appendChild(s);
   }
   async function tryPw(pw, remember){ try { const d = await open(pw); if (remember){ try { localStorage.setItem(KEY, pw); } catch(e){} } start(d); return true; } catch(e){ return false; } }
   document.getElementById("lkf").addEventListener("submit", async ev => { ev.preventDefault(); const pw = document.getElementById("lkpw").value; if (!(await tryPw(pw, true))) show(true); });
