@@ -814,8 +814,10 @@ body.clean #tabs,body.clean #kpis,body.clean #wsslot,body.clean #hslot{display:n
 .cseg.keep{background:#AC3F90}
 .cseg.ct{border-top-left-radius:0;border-top-right-radius:0}
 .cseg.cb{border-bottom-left-radius:0;border-bottom-right-radius:0}
-.cseg.vm{background:repeating-linear-gradient(135deg,#9a9a99 0 1.5px,transparent 1.5px 4px);box-shadow:inset 0 0 0 1.5px #9a9a99}
-.cseg.keep.vm{background:repeating-linear-gradient(135deg,#AC3F90 0 1.5px,transparent 1.5px 4px);box-shadow:inset 0 0 0 1.5px #AC3F90}
+.cseg.vm{background:var(--paper);border:2px solid #9a9a99}
+.cseg.keep.vm{border-color:#AC3F90}
+.cseg.vm.ct{border-top:0}
+.cseg.vm.cb{border-bottom:0}
 .clab{position:absolute;left:9px;right:0;font-size:.7rem;line-height:1.2;color:var(--muted);white-space:nowrap}
 .clab b{color:var(--ink)}
 .ic{width:1.15em;height:1.15em;vertical-align:-.2em;display:inline-block;flex:none}
@@ -903,7 +905,7 @@ details.pastl summary{cursor:pointer;color:var(--muted)}
   function start(data){
     window.__SHP_OFFLINE = true; window.__SHP_TEAM = true; window.__SHP_DATA = data;
     document.getElementById("lock").hidden = true;
-    const s = document.createElement("script"); s.src = "app.js?v=132"; document.body.appendChild(s);
+    const s = document.createElement("script"); s.src = "app.js?v=133"; document.body.appendChild(s);
   }
   async function tryPw(pw, remember){ try { const d = await open(pw); if (remember){ try { localStorage.setItem(KEY, pw); } catch(e){} } start(d); return true; } catch(e){ return false; } }
   document.getElementById("lkf").addEventListener("submit", async ev => { ev.preventDefault(); const pw = document.getElementById("lkpw").value; if (!(await tryPw(pw, true))) show(true); });
