@@ -26,7 +26,9 @@ const p2 = n => String(n).padStart(2, "0");
 const created = `${berlin.getFullYear()}-${p2(berlin.getMonth()+1)}-${p2(berlin.getDate())}T${p2(berlin.getHours())}:${p2(berlin.getMinutes())}:00`;
 const backup = {format:"survivors-home-programmplaner-backup", version:1, created, source:"team",
   collections:{events, series, referents, absences, rounds:{}, msgs:{}},
-  meta:{accepted:{items:(meta.accepted || {}).items || {}}, weeks:{status:(meta.weeks || {}).status || {}}, ...(meta.settings ? {settings:Object.fromEntries(Object.entries(meta.settings).filter(([k]) => k !== "id"))} : {})}};
+  meta:{accepted:{items:(meta.accepted || {}).items || {}}, weeks:{status:(meta.weeks || {}).status || {}}, ...(meta.settings ? {settings:Object.fromEntries(Object.entries(meta.settings).filter(([k]) => k !== "id"))} : {}),
+    /* v121: Übernachtungsgäste im Dachgeschoss (mit Namen, Sebastian 02.11.2026) und Messen – nur Team-Seite, nie öffentliche Seite */
+    ...(meta.stays ? {stays:{items:meta.stays.items || {}, fairs:meta.stays.fairs || {}}} : {})}};
 const iter = 310000, salt = crypto.randomBytes(16), iv = crypto.randomBytes(12);
 const key = crypto.pbkdf2Sync(pass, salt, iter, 32, "sha256");
 const c = crypto.createCipheriv("aes-256-gcm", key, iv);
