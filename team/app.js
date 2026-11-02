@@ -28,7 +28,7 @@ let OPEN_TXT = "Außerhalb der Kernöffnungszeit ("+OPEN_FROM+"–"+OPEN_TO+" Uh
 let CI_MIN = 30, HYB_SETUP = 300, ON_DAYS = 56, WARN_DAYS = 70;
 const SET_DEF = {ci:30, openFrom:"10:00", openTo:"21:00", umbau:120, hybSetup:5, onlineWeeks:8, warnWeeks:10, nachfass:10, wsMaxH:36, altStep:30,
   invLoc:"SURVIVORS HOME Foundation, Hildegardstr. 31, 10715 Berlin", sebMail:"sebastian.roeder@survivors-home.de", noteMail:"veranstaltung@survivors-home.de",
-  belegUrl:"https://belegung.survivors-home.de/", teamUrl:"https://belegung.survivors-home.de/team/"};
+  belegUrl:"https://belegung.survivors-home.de/", teamUrl:"https://belegung.survivors-home.de/team/", cleanUrl:"https://belegung.survivors-home.de/reinigung/"};
 const setv = k => { const v = (S.settings || {})[k]; return v === undefined || v === null || v === "" ? SET_DEF[k] : v; };
 /* Ostersonntag (gregorianisch) und gesetzliche Feiertage Berlin */
 function easter(y){ const a = y%19, b = Math.floor(y/100), c = y%100, d = Math.floor(b/4), e = b%4, f = Math.floor((b+8)/25), g = Math.floor((b-f+1)/3), h = (19*a+b-d-g+15)%30, i = Math.floor(c/4), k = c%4, l = (32+2*e+2*i-h-k)%7, m = Math.floor((a+11*h+22*l)/451), n = h+l-7*m+114;
@@ -42,7 +42,7 @@ function applySettings(){
   CI_MIN = +setv("ci"); OPEN_FROM = setv("openFrom"); OPEN_TO = setv("openTo"); OPEN_TXT = "Außerhalb der Kernöffnungszeit ("+OPEN_FROM+"–"+OPEN_TO+" Uhr inkl. Nachlauf)";
   UMBAU_MIN = +setv("umbau"); HYB_SETUP = +setv("hybSetup") * 60; ON_DAYS = +setv("onlineWeeks") * 7; WARN_DAYS = +setv("warnWeeks") * 7;
   NACHFASS_TAGE = +setv("nachfass"); WS_MAX_H = +setv("wsMaxH"); ALT_STEP = +setv("altStep");
-  INV_LOC = setv("invLoc"); SEB_MAIL = setv("sebMail"); NOTE_MAIL = setv("noteMail"); BELEG_URL = setv("belegUrl"); TEAM_URL = setv("teamUrl");
+  INV_LOC = setv("invLoc"); SEB_MAIL = setv("sebMail"); NOTE_MAIL = setv("noteMail"); BELEG_URL = setv("belegUrl"); TEAM_URL = setv("teamUrl"); CLEAN_URL = setv("cleanUrl");
   FERIEN = Array.isArray(st.ferien) ? st.ferien.filter(f => Array.isArray(f) && f[0] && f[1]) : DEF_FERIEN;
   FEIER = {}; FEIER_YEARS().forEach(y => Object.assign(FEIER, feierBerlin(y)));
   (Array.isArray(st.feierExtra) ? st.feierExtra : []).forEach(f => { if (Array.isArray(f) && f[0]) FEIER[f[0]] = f[1] || "Feiertag"; });
@@ -940,22 +940,31 @@ function viewStays(){
   const v = ed || {fromT:STAY_IN, toT:STAY_OUT, status:"vorgemerkt", persons:1};
   const frow = f => `<tr class="${UI.fairEdit === f.id ? "edt" : ""}"><td class="t">${WD[wdOf(f.from)]} ${fmtY(f.from)}${f.to && f.to !== f.from ? " – " + WD[wdOf(f.to)] + " " + fmtY(f.to) : ""}</td><td><b>${esc(f.name || "")}</b></td><td>${esc(f.note || "")}</td><td class="nowrap"><button class="btn ghost" data-faired="${f.id}">Bearbeiten</button><button class="btn ghost" data-fairdel="${f.id}">Entfernen</button></td></tr>`;
   const fl = fairList(), fNext = fl.filter(f => (f.to || f.from) >= t), fPast = fl.filter(f => (f.to || f.from) < t).reverse();
-  const help = `<b>Übernachtungen</b> (Gästezimmer im Dachgeschoss, eine Einheit)<ul><li>Bezug standardmäßig ab ${STAY_IN} Uhr, Auszug bis ${STAY_OUT} Uhr; beides je Buchung änderbar. 1–4 Personen.</li><li>Status: <b>vorgemerkt</b> (blass, gestrichelt) oder <b>gebucht</b> (grau).</li><li>Erscheinen in der Wochen-/Tagesansicht in der Spalte „Dachgeschoss“ (Klick: bearbeiten), im Jahresüberblick als <span class="sti">${BED}</span> am Tag; überall mit Bett-Symbol und auf der Team-Seite (mit Namen). Nicht auf der öffentlichen Belegungsseite.</li><li>Prüfung: Liegt eine Veranstaltung oder Vermietung im Dachgeschoss (inkl. Aufbau, Check-in, Nachlauf) in einer Übernachtung, ist das bei „gebucht“ ein Fehler, bei „vorgemerkt“ ein Hinweis – am Termin, im Prüfbericht und hier unter „Hinweise“.</li><li>Zwei Übernachtungen zur selben Zeit: rot markiert (nur eine Einheit).</li><li><b>Messen in Berlin</b>: Zeiträume, in denen Übernachtungsgäste wahrscheinlicher sind (Hotelpreise). Dezent in der Spalte „Dachgeschoss“ und im Jahresüberblick in der Notizspalte; keine Prüfung.</li></ul>`;
+  const help = `<b>Übernachtungen</b> (Gästezimmer im Dachgeschoss, eine Einheit)<ul><li>Bezug standardmäßig ab ${STAY_IN} Uhr, Auszug bis ${STAY_OUT} Uhr; beides je Buchung änderbar. 1–4 Personen.</li><li>Status: <b>vorgemerkt</b> (blass, gestrichelt) oder <b>gebucht</b> (grau).</li><li>Erscheinen in der Wochen-/Tagesansicht in der Spalte „Dachgeschoss“ (Klick: bearbeiten), im Jahresüberblick als <span class="sti">${BED}</span> am Tag; überall mit Bett-Symbol und auf der Team-Seite (mit Namen). Nicht auf der öffentlichen Belegungsseite.</li><li>Prüfung: Liegt eine Veranstaltung oder Vermietung im Dachgeschoss (inkl. Aufbau, Check-in, Nachlauf) in einer Übernachtung, ist das bei „gebucht“ ein Fehler, bei „vorgemerkt“ ein Hinweis – am Termin, im Prüfbericht und hier unter „Hinweise“.</li><li>Zwei Übernachtungen zur selben Zeit: rot markiert (nur eine Einheit).</li><li><b>Aktuell und kommend</b> / <b>Vergangen</b>: Übernachtungen und Messen, deren Ende vor heute liegt, stehen in der Ansicht „Vergangen“ (dort bearbeiten und entfernen möglich).</li><li><b>Messen in Berlin</b>: Zeiträume, in denen Übernachtungsgäste wahrscheinlicher sind (Hotelpreise). Dezent in der Spalte „Dachgeschoss“ und im Jahresüberblick in der Notizspalte; keine Prüfung.</li></ul>`;
   const back = UI.stayBack ? `<button class="btn" type="button" data-staybk="1">← zurück zur ${UI.stayBack === "jahr" ? "Jahresübersicht" : "Woche"}</button>` : "";
-  return `<div class="head"><h2>Übernachtungen ${qh(help)}</h2>${back}</div>
-  ${ed ? `<section class="stayed"><h3>Übernachtung bearbeiten: ${BED}${esc(stayName(ed))} <span class="notes">${esc(stayPer(ed))}</span></h3>` : ""}<form class="filters stayf" id="stayForm"><input class="in" id="sName" list="stayNames" placeholder="Name" value="${esc(v.name || "")}" required aria-label="Name"><datalist id="stayNames">${refs.map(n => `<option value="${esc(n)}">`).join("")}</datalist>
+  const PAST = !!UI.stayPast;
+  const sForm = `${ed ? `<section class="stayed"><h3>Übernachtung bearbeiten: ${BED}${esc(stayName(ed))} <span class="notes">${esc(stayPer(ed))}</span></h3>` : ""}<form class="filters stayf" id="stayForm"><input class="in" id="sName" list="stayNames" placeholder="Name" value="${esc(v.name || "")}" required aria-label="Name"><datalist id="stayNames">${refs.map(n => `<option value="${esc(n)}">`).join("")}</datalist>
     <label class="cb">Personen <select class="in" id="sPers">${opt(["1","2","3","4"], String(Math.min(4, Math.max(1, +v.persons || 1))))}</select></label>
     <label class="cb">Anreise <input class="in" type="date" id="sFrom" value="${esc(v.from || "")}" required> <input class="in" type="time" id="sFromT" value="${esc(v.fromT || STAY_IN)}" step="900" required></label>
     <label class="cb">Abreise <input class="in" type="date" id="sTo" value="${esc(v.to || "")}" required> <input class="in" type="time" id="sToT" value="${esc(v.toT || STAY_OUT)}" step="900" required></label>
     <select class="in" id="sStatus" aria-label="Status">${opt(STAY_ST, v.status || "vorgemerkt")}</select>
     <input class="in" id="sNote" placeholder="Notiz (optional)" value="${esc(v.note || "")}">
-    <button class="btn primary" type="submit">${ed ? "Speichern" : "+ Übernachtung"}</button>${ed ? `<button class="btn" type="button" data-stayed="">Abbrechen</button>` : ""}</form>${ed ? "</section>" : ""}
+    <button class="btn primary" type="submit">${ed ? "Speichern" : "+ Übernachtung"}</button>${ed ? `<button class="btn" type="button" data-stayed="">Abbrechen</button>` : ""}</form>${ed ? "</section>" : ""}`;
+  const fForm = `${fe ? `<section class="stayed"><h3>Messe bearbeiten: ${esc(fe.name || "")} <span class="notes">${esc(fairPer(fe))}</span></h3>` : ""}<form class="filters" id="fairForm"><input class="in" type="date" id="mFrom" value="${esc(fe ? fe.from : "")}" required aria-label="von"><input class="in" type="date" id="mTo" value="${esc(fe ? fe.to || "" : "")}" aria-label="bis (optional)"><input class="in" id="mName" placeholder="Name, z. B. ITB" value="${esc(fe ? fe.name || "" : "")}" required><input class="in" id="mNote" placeholder="Notiz (optional)" value="${esc(fe ? fe.note || "" : "")}"><button class="btn primary" type="submit">${fe ? "Speichern" : "+ Messe"}</button>${fe ? `<button class="btn" type="button" data-faired="">Abbrechen</button>` : ""}</form>${fe ? "</section>" : ""}`;
+  const fTab = l => `<div class="scroll"><table class="list"><thead><tr><th>Zeitraum</th><th>Messe</th><th>Notiz</th><th></th></tr></thead><tbody>${l.map(frow).join("")}</tbody></table></div>`;
+  const nav = `<nav class="setnav" aria-label="Übernachtungen"><span class="seg" role="group"><button class="btn ${PAST ? "" : "primary"}" data-staypast="0">Aktuell und kommend</button><button class="btn ${PAST ? "primary" : ""}" data-staypast="1">Vergangen (${past.length + fPast.length})</button></span></nav>`;
+  /* v122: Vergangenes in eigener Ansicht (Sebastian 02.11.2026); Bearbeiten dort nur über „Bearbeiten“ */
+  if (PAST) return `<div class="head"><h2>Übernachtungen ${qh(help)}</h2>${back}</div>${nav}
+  ${ed ? sForm : ""}
+  ${past.length ? tab(past) : `<div class="empty">Keine vergangenen Übernachtungen.</div>`}
+  <h3 class="sh">Vergangene Messen</h3>${fe ? fForm : ""}
+  ${fPast.length ? fTab(fPast) : `<div class="empty">Keine vergangenen Messen.</div>`}`;
+  return `<div class="head"><h2>Übernachtungen ${qh(help)}</h2>${back}</div>${nav}
+  ${sForm}
   ${next.length ? tab(next) : `<div class="empty">Keine kommenden Übernachtungen eingetragen.</div>`}
-  ${past.length ? `<details class="pastl"><summary>Vergangene Übernachtungen (${past.length})</summary>${tab(past)}</details>` : ""}
   <h3 class="sh">Messen in Berlin</h3>
-  <form class="filters" id="fairForm"><input class="in" type="date" id="mFrom" value="${esc(fe ? fe.from : "")}" required aria-label="von"><input class="in" type="date" id="mTo" value="${esc(fe ? fe.to || "" : "")}" aria-label="bis (optional)"><input class="in" id="mName" placeholder="Name, z. B. ITB" value="${esc(fe ? fe.name || "" : "")}" required><input class="in" id="mNote" placeholder="Notiz (optional)" value="${esc(fe ? fe.note || "" : "")}"><button class="btn primary" type="submit">${fe ? "Speichern" : "+ Messe"}</button>${fe ? `<button class="btn" type="button" data-faired="">Abbrechen</button>` : ""}</form>
-  ${fNext.length ? `<div class="scroll"><table class="list"><thead><tr><th>Zeitraum</th><th>Messe</th><th>Notiz</th><th></th></tr></thead><tbody>${fNext.map(frow).join("")}</tbody></table></div>` : `<div class="empty">Keine kommenden Messen eingetragen.</div>`}
-  ${fPast.length ? `<details class="pastl"><summary>Vergangene Messen (${fPast.length})</summary><div class="scroll"><table class="list"><tbody>${fPast.map(frow).join("")}</tbody></table></div></details>` : ""}`;
+  ${fForm}
+  ${fNext.length ? fTab(fNext) : `<div class="empty">Keine kommenden Messen eingetragen.</div>`}`;
 }
 /* ---------- Einstellungen: Abwesenheiten im Team ---------- */
 const absHit = a => evList().filter(e => e.kind==="va" && e.status !== "abgesagt" && a.from <= e.date && e.date <= (a.to||a.from));
@@ -1018,7 +1027,8 @@ const SET_F = {
     ["sebMail","E-Mail Sebastian (Einladung)","","email","","","","wird bei Hybrid automatisch eingeladen, wenn bei Sebastian keine E-Mail hinterlegt ist"],
     ["noteMail","Adresse für Notizen (Team-Seite)","","email","","","","Notiz-Knopf im Detailblatt der Team-Seite"],
     ["belegUrl","Link Belegungsseite","","url","","","","in Mails an Referenten"],
-    ["teamUrl","Link Team-Seite","","url","","","","unter Sicherung → Team-Seite fürs Handy"]]};
+    ["teamUrl","Link Team-Seite","","url","","","","unter Sicherung → Team-Seite fürs Handy"],
+    ["cleanUrl","Link Reinigungsseite","","url","","","","unter Reinigung und Einstellungen → Reinigung"]]};
 function setForm(kind){
   const st = S.settings || {};
   const fld = ([k, l, u, ty, mn, mx, sp, h]) => `<label>${esc(l)}${u ? ` (${esc(u)})` : ""} <span class="hint">${esc(h)} · Standard: ${esc(String(SET_DEF[k]))}${st[k] != null && st[k] !== "" && String(st[k]) !== String(SET_DEF[k]) ? " · <b>geändert</b>" : ""}</span><input class="in" name="${k}" type="${ty}"${mn ? ` min="${mn}"` : ""}${mx ? ` max="${mx}"` : ""}${sp ? ` step="${sp}"` : ""} value="${esc(String(setv(k)))}"></label>`;
@@ -1345,23 +1355,22 @@ function viewPersonen(head){
   const rows = list.map(({r, I}) => {
     const mail = !!r.email, st = P_STATES[I.state], pm = ["neu","wait","late","conf","done"].includes(I.state);
     const lab = I.state === "neu" ? (I.asked ? "neue Vorschläge" : "Terminabfrage") : I.state === "conf" || I.state === "done" ? "Bestätigung" : "Erinnerung";
-    const act = [
-      pm && mail ? `<button class="btn sm${I.state === "wait" || I.state === "done" ? " ghost" : ""}" data-pmail="${r.id}">${lab} öffnen</button>` : "",
-      pm ? `<button class="btn ghost sm" data-pcopy="${r.id}">Text kopieren</button>` : "",
-      pm ? `<button class="btn ghost sm" data-psent="${r.id}" data-ch="${mail ? "Mail" : "Telefon"}" title="${esc(lab + " als versendet eintragen")}">${mail ? "versendet" : "angerufen"}</button>` : "",
-      pm && !mail ? `<button class="btn ghost sm" data-psent="${r.id}" data-ch="Ausdruck">übergeben</button>` : "",
-      `<button class="btn ${I.state === "ans" ? "" : "ghost "}sm" data-pans="${r.id}">${I.state === "ans" ? "Antwort auswerten" : "Antwort einfügen"}</button>`,
-      `<button class="btn ghost sm" data-pevs="${r.id}">Termine (${I.evs.length})</button>`,
-      `<button class="btn ghost sm" data-rhist="${r.id}">Verlauf (${msgsOf(r.id).length})</button>`
-    ].join("");
+    const nxt = ["neu","late","conf"].includes(I.state); /* Mail ist der nächste Schritt */
+    const mailGrp = pm ? `<span class="pgrp${nxt ? " nxt" : ""}" title="${esc(lab + ": öffnen bzw. kopieren, nach dem Senden „" + (mail ? "versendet" : "angerufen") + "“ klicken")}">${[
+      mail ? `<button class="btn sm" data-pmail="${r.id}">${lab} öffnen</button>` : "",
+      `<button class="btn sm" data-pcopy="${r.id}">Text kopieren</button>`,
+      `<button class="btn sm" data-psent="${r.id}" data-ch="${mail ? "Mail" : "Telefon"}" title="${esc(lab + " als versendet eintragen")}">✓ ${mail ? "versendet" : "angerufen"}</button>`,
+      !mail ? `<button class="btn sm" data-psent="${r.id}" data-ch="Ausdruck">✓ übergeben</button>` : ""
+    ].join("")}</span>` : `<span class="pgrp empty"></span>`;
+    const act = `<div class="ract">${mailGrp}<button class="btn sm${I.state === "ans" ? " nxt" : ""}" data-pans="${r.id}">${I.state === "ans" ? "Antwort auswerten" : "Antwort einfügen"}</button><button class="btn sm" data-rhist="${r.id}" aria-expanded="${UI.histOpen === r.id}">Verlauf (${msgsOf(r.id).length})</button></div>`;
     const when = I.state === "ans" ? I.lastIn.at : I.lastOut ? I.lastOut.at : "";
-    return `<tr><td class="pcell" data-ref="${r.id}" role="button" tabindex="0" title="Person öffnen: Kontakt, Einstellungen, Termine, Verlauf"><b class="rlink">${esc(r.name)}</b><div class="notes">${esc([...new Set(I.evs.map(e => (S.series[e.seriesId]||{}).name || evName(e)))].join(", "))}</div></td><td class="ccell">${contactCell(r)}</td>
-      <td><span class="rst ${st.c}">${esc((I.state === "wait" || I.state === "late") && I.partial ? "Rückmeldung da – " + I.by.asked.length + " noch offen" + (I.state === "late" ? ", nachfassen" : "") : I.state === "late" ? "nachfassen (seit " + I.days + " Tagen)" : st.t)}</span>${when ? `<div class="notes">${esc((I.state === "ans" ? "Antwort " : I.lastOut.kind === "conf" ? "Bestätigung " : I.lastOut.kind === "remind" ? "Erinnerung " : "angefragt ") + fmtAt(when))}</div>` : ""}<div class="notes">${esc(cnt(I))}</div></td><td class="ract">${act}</td></tr>
+    return `<tbody class="prs${UI.pOpen === r.id || UI.histOpen === r.id ? " open" : ""}"><tr><td class="pcell" data-ref="${r.id}" role="button" tabindex="0" title="Person öffnen: Kontakt, Einstellungen, Termine, Verlauf"><b class="rlink">${esc(r.name)}</b><div class="notes">${esc([...new Set(I.evs.map(e => (S.series[e.seriesId]||{}).name || evName(e)))].join(", "))}</div></td><td class="ccell">${contactCell(r)}</td>
+      <td><span class="rst ${st.c}">${esc((I.state === "wait" || I.state === "late") && I.partial ? "Rückmeldung da – " + I.by.asked.length + " noch offen" + (I.state === "late" ? ", nachfassen" : "") : I.state === "late" ? "nachfassen (seit " + I.days + " Tagen)" : st.t)}</span>${when ? `<div class="notes">${esc((I.state === "ans" ? "Antwort " : I.lastOut.kind === "conf" ? "Bestätigung " : I.lastOut.kind === "remind" ? "Erinnerung " : "angefragt ") + fmtAt(when))}</div>` : ""}<button class="btn sm pevs" data-pevs="${r.id}" aria-expanded="${UI.pOpen === r.id}" title="Termine ${YEAR} mit Abstimmungsstand ein-/ausblenden">${UI.pOpen === r.id ? "▾" : "▸"} Termine: ${esc(cnt(I) || "keine")}</button></td><td>${act}</td></tr>
       ${UI.pOpen === r.id ? `<tr class="rhist"><td colspan="4"><div class="iss">${I.evs.map(e => chip(e, evSt(e, r), r.id)).join(" ")}</div>${I.evs.some(e => ((e.refAns||{})[r.id]||{}).note) ? `<div class="notes" style="margin-top:6px">${I.evs.filter(e => ((e.refAns||{})[r.id]||{}).note).map(e => esc(fmt(e.date) + ": " + e.refAns[r.id].note)).join(" · ")}</div>` : ""}</td></tr>` : ""}
-      ${UI.histOpen === r.id ? `<tr class="rhist"><td colspan="4">${histHtml(r)}</td></tr>` : ""}`;
+      ${UI.histOpen === r.id ? `<tr class="rhist"><td colspan="4">${histHtml(r)}</td></tr>` : ""}</tbody>`;
   }).join("");
   return head + `<div class="filters">${fb("alle","Alle mit Terminen")}${fb("neu","neu anzuschreiben")}${fb("wait","wartet")}${fb("late","nachfassen")}${fb("ans","Antwort auswerten")}${fb("replan","Neuplanung nötig")}${fb("conf","Bestätigung senden")}${fb("done","bestätigt")}${fb("ohne","ohne Termine " + YEAR)}</div>`
-    + (list.length ? `<div class="scroll"><table class="list rtab ptab"><colgroup><col class="c-p"><col class="c-k"><col><col></colgroup><thead><tr><th>Person / Angebote</th><th>Kontakt</th><th>Stand ${YEAR}</th><th>Aktionen</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty">Niemand in dieser Auswahl.</div>`);
+    + (list.length ? `<div class="scroll"><table class="list rtab ptab"><colgroup><col class="c-p"><col class="c-k"><col class="c-s"><col class="c-a"></colgroup><thead><tr><th>Person / Angebote</th><th>Kontakt</th><th>Stand ${YEAR}</th><th>Aktionen</th></tr></thead>${rows}</table></div>` : `<div class="empty">Niemand in dieser Auswahl.</div>`);
 }
 
 /* Versand eintragen: Mail mit Terminliste im Verlauf, abgefragte Termine auf „angefragt“ */
@@ -1433,7 +1442,7 @@ function viewReferenten(){
   const seg = `<span class="seg" role="group" aria-label="Ansicht"><button class="btn ${mode === "pers" ? "primary" : ""}" data-amode="pers">Terminabstimmung</button><button class="btn ${mode === "verf" ? "primary" : ""}" data-amode="verf">Vorabfrage Verfügbarkeit</button></span>`;
   const sender = `<label class="notes">Absender <select class="in" id="fSender"><option value="">– wählen –</option>${opt(["Kati","Sebastian"], UI.sender)}</select></label>`;
   if (mode === "verf") return viewRunden(seg);
-  const help = `<b>Referenten – Terminabstimmung</b><ul><li>Klick auf den Namen öffnet die Person in einem großen Dialog: Kontakt, Anrede, Einschränkungen, Verfügbarkeiten, Termine ${YEAR} mit Abstimmungsstand und Nachrichtenverlauf. „+ Referent“ legt eine neue Person an.</li><li>„Vorabfrage Verfügbarkeit“ zeigt die Runde vom Jahresbeginn (wann jemand nicht kann).</li><li>Der Zähler am Reiter zeigt, wie viele Personen gerade einen Schritt brauchen (neu anzuschreiben, nachfassen, Antwort auswerten).</li><li>Jede Person hat ihren eigenen Stand – er ergibt sich aus ihren Terminen ${YEAR} und dem Verlauf. Die Schaltfläche zeigt immer den nächsten Schritt.</li><li><b>neu anzuschreiben</b>: Termine, die noch nie abgefragt wurden oder seit der letzten Mail verschoben wurden. „Terminabfrage öffnen“ erzeugt die Mail mit genau diesen Terminen; nach einer ersten Antwort heißen sie „neue Vorschläge“ und die bereits zugesagten Termine stehen zur Bestätigung mit drin.</li><li>Nach dem Senden <b>„versendet“</b> klicken: die Mail kommt in den Verlauf, die Termine gehen von Idee/Option auf „angefragt“.</li><li><b>wartet</b> / <b>nachfassen</b> (nach ${NACHFASS_TAGE} Tagen): fertige Erinnerung mit den offenen Terminen.</li><li><b>Antwort einfügen</b>: Text hineinkopieren, „Claude auswerten lassen“ setzt je Termin passt / passt nicht / offen vor (speichert noch nichts) – prüfen, dann „Auswertung übernehmen“. Erst damit ändert sich der Stand der Person. „Nur Text ablegen“ speichert die Mail ohne Auswertung; die Person steht dann auf „Antwort auswerten“. passt → Termin „zugesagt“ (bei mehreren Referenten, wenn alle zugesagt haben). passt nicht → Fehler in der Prüfung „neu planen“, die Person steht auf „Neuplanung nötig“.</li><li>Nach einem Planungslauf: verschobene Termine gelten wieder als „neu“, die Person erscheint unter „neu anzuschreiben“.</li><li><b>Bestätigung senden</b>: wenn alle Termine einer Person zugesagt sind – Mail mit allen Terminen ${YEAR}. Ändert sich danach etwas, erscheint sie wieder.</li><li>Nur Termine mit Status Idee, Option oder angefragt werden abgefragt; zugesagte, fixe, veröffentlichte und als „fester Termin“ markierte gelten als zugesagt.</li></ul>`;
+  const help = `<b>Referenten – Terminabstimmung</b><ul><li>Klick auf den Namen öffnet die Person in einem großen Dialog: Kontakt, Anrede, Einschränkungen, Verfügbarkeiten, Termine ${YEAR} mit Abstimmungsstand und Nachrichtenverlauf. „+ Referent“ legt eine neue Person an.</li><li>„Vorabfrage Verfügbarkeit“ zeigt die Runde vom Jahresbeginn (wann jemand nicht kann).</li><li>Der Zähler am Reiter zeigt, wie viele Personen gerade einen Schritt brauchen (neu anzuschreiben, nachfassen, Antwort auswerten).</li><li>Jede Person hat ihren eigenen Stand – er ergibt sich aus ihren Terminen ${YEAR} und dem Verlauf. Der nächste Schritt ist <b>violett gefüllt</b>; steht jemand nur auf „wartet“, bleiben alle Knöpfe weiß.</li><li><b>„▸ Termine: …“</b> unter dem Stand klappt die Termine ${YEAR} mit Abstimmungsstand auf, „Verlauf“ die Nachrichten. Aufgeklapptes hängt grau hinterlegt mit violettem Balken links an der Person.</li><li>Die drei verbundenen Knöpfe gehören zur Mail: <b>öffnen</b> (oder <b>Text kopieren</b>), senden, dann <b>„✓ versendet“</b>.</li><li><b>neu anzuschreiben</b>: Termine, die noch nie abgefragt wurden oder seit der letzten Mail verschoben wurden. „Terminabfrage öffnen“ erzeugt die Mail mit genau diesen Terminen; nach einer ersten Antwort heißen sie „neue Vorschläge“ und die bereits zugesagten Termine stehen zur Bestätigung mit drin.</li><li>Nach dem Senden <b>„versendet“</b> klicken: die Mail kommt in den Verlauf, die Termine gehen von Idee/Option auf „angefragt“.</li><li><b>wartet</b> / <b>nachfassen</b> (nach ${NACHFASS_TAGE} Tagen): fertige Erinnerung mit den offenen Terminen.</li><li><b>Antwort einfügen</b>: Text hineinkopieren, „Claude auswerten lassen“ setzt je Termin passt / passt nicht / offen vor (speichert noch nichts) – prüfen, dann „Auswertung übernehmen“. Erst damit ändert sich der Stand der Person. „Nur Text ablegen“ speichert die Mail ohne Auswertung; die Person steht dann auf „Antwort auswerten“. passt → Termin „zugesagt“ (bei mehreren Referenten, wenn alle zugesagt haben). passt nicht → Fehler in der Prüfung „neu planen“, die Person steht auf „Neuplanung nötig“.</li><li>Nach einem Planungslauf: verschobene Termine gelten wieder als „neu“, die Person erscheint unter „neu anzuschreiben“.</li><li><b>Bestätigung senden</b>: wenn alle Termine einer Person zugesagt sind – Mail mit allen Terminen ${YEAR}. Ändert sich danach etwas, erscheint sie wieder.</li><li>Nur Termine mit Status Idee, Option oder angefragt werden abgefragt; zugesagte, fixe, veröffentlichte und als „fester Termin“ markierte gelten als zugesagt.</li></ul>`;
   const head = `<div class="head"><h2>Referenten ${qh(help)}</h2><div class="tools">${seg}${sender}<button class="btn primary" data-newref="1">+ Referent</button></div></div>`;
   return viewPersonen(head);
 }
@@ -1457,7 +1466,7 @@ function viewRunden(seg){
       `<button class="btn ghost sm" data-rans="${r.id}">Antwort einfügen</button>`,
       `<button class="btn ghost sm" data-rhist="${r.id}">Verlauf (${msgsOf(r.id).length})</button>`
     ].join("");
-    return `<tr><td><b>${esc(r.name)}</b><div class="notes">${esc(refSeries(r).join(", ") || "Einzeltermine")}${rdType(rd) === "term" ? " · " + termOf(r).length + " Termin" + (termOf(r).length === 1 ? "" : "e") + " zur Besprechung" : ""}</div></td><td class="ccell">${contactCell(r)}</td><td><span class="rst ${s.k}">${esc(s.t)}</span>${s.d ? `<div class="notes">${esc(fmtAt(s.d))}</div>` : ""}</td><td class="ract">${act}</td></tr>
+    return `<tr><td><b>${esc(r.name)}</b><div class="notes">${esc(refSeries(r).join(", ") || "Einzeltermine")}${rdType(rd) === "term" ? " · " + termOf(r).length + " Termin" + (termOf(r).length === 1 ? "" : "e") + " zur Besprechung" : ""}</div></td><td class="ccell">${contactCell(r)}</td><td><span class="rst ${s.k}">${esc(s.t)}</span>${s.d ? `<div class="notes">${esc(fmtAt(s.d))}</div>` : ""}</td><td><div class="ract">${act}</div></td></tr>
       ${UI.histOpen === r.id ? `<tr class="rhist"><td colspan="4">${histHtml(r)}</td></tr>` : ""}`;
   }).join("");
   return head + `<div class="filters"><span class="notes"><b>${esc(rd.name)}</b> (${esc(RTYPES[rdType(rd)] || "")}) · angelegt ${esc(fmtAt(rd.created))}${rd.by ? " von " + esc(rd.by) : ""} · ${refs.length} Personen${[["open","offen"],["sent","wartet"],["late","nachfassen"],["in","Antwort da"],["done","ausgewertet"]].filter(([k]) => cnt(k)).map(([k, l], i) => (i ? " · " : ": ") + (k === "late" ? `<b class="rlate">${cnt(k)} ${l}</b>` : cnt(k) + " " + l)).join("")}</span></div>
@@ -1560,7 +1569,7 @@ function availIssues(e, r, st, en, add){
 }
 
 /* ---------- Rendern ---------- */
-const VIEWS = {jahr:viewJahr, woche:viewWoche, liste:viewListe, pruefung:viewPruefung, reihen:viewReihen, referenten:viewReferenten, uebernachtung:viewStays, abwesend:viewAbwesend, anfragen:viewReferenten, sicherung:viewSicherung, kalender:viewKalender, zeiten:viewZeiten, kontakte:viewKontakte};
+const VIEWS = {jahr:viewJahr, woche:viewWoche, liste:viewListe, pruefung:viewPruefung, reihen:viewReihen, referenten:viewReferenten, uebernachtung:viewStays, reinigung:viewReinigung, creinigung:viewCleanSet, abwesend:viewAbwesend, anfragen:viewReferenten, sicherung:viewSicherung, kalender:viewKalender, zeiten:viewZeiten, kontakte:viewKontakte};
 let rq = 0;
 function render(){
   { const tip = document.getElementById("qtip"); if (tip) tip.hidden = true; const zp = document.getElementById("zpop"); if (zp) zp.hidden = true; } cancelAnimationFrame(rq); rq = requestAnimationFrame(() => {
@@ -1592,7 +1601,7 @@ function markSel(){
   if (UI.scrollSel){ UI.scrollSel = false; const t = els[0] || cell; if (t){ t.scrollIntoView({block:"center", inline:"center", behavior:"smooth"}); } }
 }
 /* Reiter „Einstellungen“: Unterreiter sind eigene Ansichten; der Reiter öffnet den zuletzt benutzten */
-const SET_VIEWS = [["kalender","Kalender"],["zeiten","Zeiten & Fristen"],["kontakte","Kontakte & Adressen"],["abwesend","Abwesenheiten"],["sicherung","Sicherung"]];
+const SET_VIEWS = [["kalender","Kalender"],["zeiten","Zeiten & Fristen"],["kontakte","Kontakte & Adressen"],["creinigung","Reinigung"],["abwesend","Abwesenheiten"],["sicherung","Sicherung"]];
 const isSetView = v => SET_VIEWS.some(x => x[0] === v);
 function setNav(){ return `<nav class="setnav" aria-label="Einstellungen"><span class="seg" role="group">${SET_VIEWS.map(([k, l]) => `<button class="btn ${UI.view === k ? "primary" : ""}" data-view="${k}"${UI.view === k ? ' aria-current="page"' : ""}>${l}</button>`).join("")}</span></nav>`; }
 function go(view){
@@ -1809,6 +1818,7 @@ function evForm(e){
    <label class="full">Möblierung Workshopraum <span class="hint">${esc(ser.id ? "leer = aus Reihe: " + (ser.furn || "nicht festgelegt") : "nur bei Nutzung des Workshopraums")}</span><select name="furn"><option value="">${ser.id ? "aus Reihe" : "–"}</option>${opt(FURN, e.furn)}</select></label>
    <label class="cb"><input type="checkbox" name="hybrid" ${e.hybrid?"checked":""}> Hybrid / Live</label><input type="hidden" name="sebAuto" value="${e.sebAuto ? "1" : ""}">
    <div class="invbox full" data-invbox="1"${e.hybrid ? "" : " hidden"}><a class="btn" data-invite="1" href="#" target="_blank" rel="noopener">Termineinladung</a><label class="cb"><input type="checkbox" name="invSent" ${e.invSent && !e.__dup ? "checked" : ""}> Einladung verschickt</label>${qh(INV_HELP)}<span class="invhint" aria-live="polite"></span></div>
+   <label class="cb full"><input type="checkbox" name="kitchenClean" ${e.kitchenClean?"checked":""}> Küchenreinigung <span class="hint">Küche wird genutzt und muss danach gereinigt werden; für die spätere Einsatzplanung der Reinigungskräfte, wird derzeit nicht ausgewertet (bei neuem Termin aus der Reihe übernommen)</span></label>
    <label class="full">Parallelbetrieb im EG <span class="hint">${esc((ser.id ? "leer = aus Reihe: Stufe " + serLevel(ser) + " · " : "") + EGL_HELP)}</span><select name="egLevel">${ser.id ? `<option value="">aus Reihe: ${esc(serLevel(ser) + " · " + eglName(serLevel(ser)))}</option>` : ""}${opt(EGL.map(x => [String(x[0]), x[0] + " · " + x[1]]), +e.egLevel ? String(e.egLevel) : (ser.id ? "" : String(e.excl ? 3 : 1)))}</select></label>
    <label>Draußen <span class="hint">${esc(ser.id ? "leer = aus Reihe: " + (ser.outdoor ? "ja" : "nein") : "")} – steuert die Prüfung auf Sonnenuntergang</span><select name="outdoor"><option value="">${ser.id ? "aus Reihe" : "–"}</option>${opt([["ja","findet (teilweise) draußen statt"],["nein","drinnen"]], e.outdoor === true ? "ja" : e.outdoor)}</select></label>
    <label>Check-in<select name="checkin"><option value="">${esc(ser.id ? "aus Reihe: " + ciLab[serCi] : "Standard (" + CI_MIN + " Min vor Beginn)")}</option>${opt([["vorher","30 Min vor Beginn"],["durchgehend","durchgehend: " + CI_MIN + " Min vorher und während der ganzen Veranstaltung"],["keiner","kein Check-in"]], e.checkin)}</select></label>
@@ -1863,6 +1873,7 @@ function serForm(s){
    <label class="cb"><input type="checkbox" name="hybrid" ${s.hybrid?"checked":""}> Hybrid / Live</label><input type="hidden" name="sebAuto" value="${s.sebAuto ? "1" : ""}">
    <label class="full">Parallelbetrieb im EG <span class="hint">${esc(EGL_HELP)}</span><select name="egLevel">${opt(EGL.map(x => [String(x[0]), x[0] + " · " + x[1]]), String(serLevel(s)))}</select></label>
    <label class="cb full"><input type="checkbox" name="outdoor" ${s.outdoor?"checked":""}> findet (teilweise) draußen statt</label>
+   <label class="cb full"><input type="checkbox" name="kitchenClean" ${s.kitchenClean?"checked":""}> Küchenreinigung <span class="hint">Küche wird genutzt und muss danach gereinigt werden; für die spätere Einsatzplanung der Reinigungskräfte, wird derzeit nicht ausgewertet; Vorgabe für neue Termine der Reihe</span></label>
    <label class="full">Check-in<select name="checkin">${opt([["vorher",CI_MIN + " Min vor Beginn"],["durchgehend","durchgehend: " + CI_MIN + " Min vorher und während der ganzen Veranstaltung"],["keiner","kein Check-in"]], s.checkin || (s.form==="Beratung" ? "durchgehend" : "vorher"))}</select></label>
    <label>Aufbau vor Beginn <span class="hint">(leer = 5:00 h bei Hybrid)</span>${durPair(`name="setup" step="15"`, s.setup, "Aufbau")}</label>
    <label>Nachlauf Gäste <span class="hint">(nach offiziellem Ende)</span>${durPair(`name="after" step="5"`, s.after, "Nachlauf")}</label>
@@ -2002,6 +2013,7 @@ function applySeries(sid){
   const set = (n,v) => { const el = f.elements[n]; if (!el || v == null || v === "") return; if (el.type === "checkbox") el.checked = !!v; else el.value = v; };
   set("title", s.name); set("dur", s.dur); set("room", s.room); set("theme", s.theme);
   if (!f.elements.start.value) set("start", s.start);
+  if (f.elements.kitchenClean) f.elements.kitchenClean.checked = !!s.kitchenClean;
   f.elements.hybrid.checked = !!s.hybrid; if (f.elements.egLevel) f.elements.egLevel.value = "";
   [...f.elements.refs.options].forEach(o => o.selected = (s.refs||[]).includes(o.value));
   if (f.elements.sebAuto) f.elements.sebAuto.value = s.hybrid && s.sebAuto ? "1" : "";
@@ -2026,7 +2038,7 @@ function genCands(){
     if (mv && !ok(i)){ for (let dd = 1; dd < U.length; dd++){ const c = [i - dd, i + dd].find(j => j >= 0 && j < U.length && !taken.has(j) && ok(j)); if (c != null){ i = c; break; } } }
     if (taken.has(i)) continue; taken.add(i); idx.push(i);
   }
-  const out = idx.sort((a, b) => a - b).map((i, k) => ({id:"__c"+k, seriesId:s.id, title:s.name, date:day(i), start, dur:s.dur||90, room:s.room||"", theme:s.theme||"", hybrid:!!s.hybrid, excl:!!s.excl, refs:s.refs||[], sebAuto:!!(s.hybrid && s.sebAuto), status:"Option", kind:"va"}));
+  const out = idx.sort((a, b) => a - b).map((i, k) => ({id:"__c"+k, seriesId:s.id, title:s.name, date:day(i), start, dur:s.dur||90, room:s.room||"", theme:s.theme||"", hybrid:!!s.hybrid, kitchenClean:!!s.kitchenClean, excl:!!s.excl, refs:s.refs||[], sebAuto:!!(s.hybrid && s.sebAuto), status:"Option", kind:"va"}));
   const iss = computeIssues(evList().concat(out));
   CANDS = out.map(c => ({c, iss: iss.get(c.id)||[]}));
   $("#cands").innerHTML = CANDS.length ? CANDS.map((x,i) => { const bad = x.iss.some(z => z.l==="err" || z.t === OPEN_TXT); return `<div class="cand"><input type="checkbox" id="cand${i}" ${bad?"":"checked"} aria-label="Vorschlag übernehmen"><label for="cand${i}"><b class="t">${WD[wdOf(x.c.date)]} ${fmtY(x.c.date)} ${esc(start)}</b> <span class="notes">KW ${isoWeek(x.c.date)[1]} · ${esc(weekStatus(x.c.date))}</span><div class="iss">${x.iss.map(z => `<span class="lv ${z.l}">${esc(z.t)}</span>`).join(" ")}</div></label></div>`; }).join("") + `<div style="margin-top:10px"><button class="btn primary" data-take="1">Ausgewählte als Option anlegen</button></div>` : `<div class="empty">Keine passenden Termine im Zeitraum.</div>`;
@@ -2184,7 +2196,7 @@ document.addEventListener("click", async ev => {
   { const a = ev.target.closest && ev.target.closest("[data-invite]");
     if (a){ const info = inviteInfo(draftEvent()); if (info.err){ ev.preventDefault(); toast(info.err); return; }
       a.href = info.url; if (info.miss.length) toast("Ohne E-Mail, bitte in Outlook ergänzen: " + info.miss.join(", ")); else if (!info.to.length) toast("Keine Referenten mit E-Mail – Teilnehmer in Outlook eintragen"); return; } }
-  const t = ev.target.closest("[data-sentyes],[data-sentno],[data-zone],[data-acc],[data-accg],[data-newround],[data-amode],[data-pfilt],[data-pmail],[data-pcopy],[data-psent],[data-pans],[data-pevs],[data-pparse],[data-papply],[data-psave],[data-rmail],[data-rcopy],[data-rsent],[data-rremind],[data-rans],[data-rhist],[data-aparse],[data-asave],[data-aapply],[data-delavail],[data-ydet],[data-sernav],[data-evnav],[data-openser],[data-back],[data-quick],[data-view],[data-wk],[data-goweek],[data-ev],[data-new],[data-wnav],[data-wtoday],[data-prback],[data-dayweek],[data-ytoday],[data-alt],[data-altgo],[data-altset],[data-altcopy],[data-bk],[data-ser],[data-newser],[data-ref],[data-newref],[data-close],[data-save],[data-del],[data-delok],[data-dup],[data-gen],[data-take],[data-csv],[data-delabs],[data-serf],[data-lpast],[data-ferdel],[data-ferdef],[data-fxdel],[data-setdef],[data-stay],[data-stayed],[data-staybk],[data-staydel],[data-faired],[data-fairdel]");
+  const t = ev.target.closest("[data-sentyes],[data-sentno],[data-zone],[data-acc],[data-accg],[data-newround],[data-amode],[data-pfilt],[data-pmail],[data-pcopy],[data-psent],[data-pans],[data-pevs],[data-pparse],[data-papply],[data-psave],[data-rmail],[data-rcopy],[data-rsent],[data-rremind],[data-rans],[data-rhist],[data-aparse],[data-asave],[data-aapply],[data-delavail],[data-ydet],[data-sernav],[data-evnav],[data-openser],[data-back],[data-quick],[data-view],[data-wk],[data-goweek],[data-ev],[data-new],[data-wnav],[data-wtoday],[data-prback],[data-dayweek],[data-ytoday],[data-alt],[data-altgo],[data-altset],[data-altcopy],[data-bk],[data-ser],[data-newser],[data-ref],[data-newref],[data-close],[data-save],[data-del],[data-delok],[data-dup],[data-gen],[data-take],[data-csv],[data-delabs],[data-serf],[data-lpast],[data-ferdel],[data-ferdef],[data-fxdel],[data-setdef],[data-stay],[data-stayed],[data-staybk],[data-staypast],[data-staydel],[data-faired],[data-fairdel]");
   const guard = () => { if (UI.drawer && UI.dirty && !UI.dirtyOk){ UI.dirtyOk = true; clearTimeout(UI.dirtyT); UI.dirtyT = setTimeout(() => UI.dirtyOk = false, 4000); toast("Ungespeicherte Änderungen – zum Verwerfen erneut klicken"); return true; } return false; };
   if (!t) {
     if (UI.drawer && !ev.target.closest("#drawer") && !ev.target.closest("input,select,textarea,label,button,a,summary,.qh,#qtip") && !guard()) closeDrawer();
@@ -2269,8 +2281,9 @@ document.addEventListener("click", async ev => {
   if (ds.gen) return genCands();
   if (ds.take) return takeCands();
   if (ds.csv) return exportCsv();
-  if ("stay" in ds){ UI.stayEdit = ds.stay; UI.stayBack = UI.view === "woche" ? "woche" : null; UI.stayY = window.scrollY; return go("uebernachtung"); }
+  if ("stay" in ds){ UI.stayEdit = ds.stay; UI.stayPast = !!(S.stays[ds.stay] && S.stays[ds.stay].to < todayStr()); UI.stayBack = UI.view === "woche" ? "woche" : null; UI.stayY = window.scrollY; return go("uebernachtung"); }
   if ("stayed" in ds){ UI.stayEdit = ds.stayed || null; if (!UI.stayEdit && UI.stayBack) return stayReturn(); render(); if (UI.stayEdit) window.scrollTo(0, 0); return; }
+  if (ds.staypast){ UI.stayPast = ds.staypast === "1"; UI.stayEdit = null; UI.fairEdit = null; return render(); }
   if (ds.staybk){ UI.stayEdit = null; return stayReturn(); }
   if (ds.staydel){ delete S.stays[ds.staydel]; if (UI.stayEdit === ds.staydel) UI.stayEdit = null; return saveStays("Übernachtung entfernt"); }
   if ("faired" in ds){ UI.fairEdit = ds.faired || null; return render(); }
@@ -2744,11 +2757,151 @@ document.addEventListener("click", ev => { const a = ev.target.closest("a.mnote"
     if (Math.abs(dx) > 70 && Math.abs(dy) < 50 && !($("#msheet") && !$("#msheet").hidden)) mobGo((dx < 0 ? 1 : -1) * (MB.mode === "tag" ? 1 : 7)); }, {passive:true});
 })();
 
+/* ---------- Reinigung (v125): Einsätze der Reinigungskräfte, Aufgaben DG/EG ---------- */
+/* Reinigungszeiten (Einstellungen → Reinigung, meta/settings.cleanSlots): Standard Mo und Fr 9–12 Uhr (Sebastian 02.11.2026).
+   Fällt ein Einsatz auf einen Feiertag, wird er auf den Tag danach verlegt (Werktag ohne Feiertag), sonst auf den Tag davor. */
+const CLEAN = !!window.__SHP_CLEAN; /* CLEAN: Reinigungsseite auf GitHub (nur Ansicht „Reinigung“, Daten eingebettet, ohne Namen) */
+let CLEAN_URL = "https://belegung.survivors-home.de/reinigung/"; /* Einstellungen */
+const CLEAN_DEF = [{wd:1, from:"09:00", to:"12:00"}, {wd:5, from:"09:00", to:"12:00"}];
+const cleanCfg = () => { const v = (S.settings || {}).cleanSlots; const l = Array.isArray(v) ? v.filter(x => x && +x.wd >= 1 && +x.wd <= 6 && /^\d\d:\d\d$/.test(x.from || "") && /^\d\d:\d\d$/.test(x.to || "") && x.from < x.to) : null; return l && l.length ? l : CLEAN_DEF; };
+/* Gäste ohne Zwischenreinigung: kommt derselbe Gast direkt wieder (kein anderer Gast dazwischen), muss das DG nicht gereinigt werden (Sebastian 02.11.2026: Nadja) */
+const cleanSame = () => (Array.isArray((S.settings || {}).cleanSame) ? S.settings.cleanSame : []).map(n => String(n || "").trim()).filter(Boolean);
+const cleanKey = x => stayName(x).toLowerCase();
+const workDay = d => wdOf(d) >= 1 && wdOf(d) <= 5 && !FEIER[d];
+const stayN = x => Math.min(4, Math.max(1, +x.persons || 1));
+const persTxt = n => n + (n === 1 ? " Person" : " Personen");
+const absTxt = m => { const d = S_(Math.floor(m / 1440)); return WD[wdOf(d)] + " " + fmtY(d) + " " + m2t(m % 1440); };
+function cleanSlots(d0, d1){
+  const cfg = cleanCfg(), out = [];
+  for (let n = D(d0) - 3; n <= D(d1) + 3; n++){
+    const d = S_(n);
+    cfg.filter(c => +c.wd === wdOf(d)).forEach(c => {
+      let day = d, moved = "";
+      if (FEIER[d]){ moved = FEIER[d]; const a = S_(n + 1), b = S_(n - 1); day = workDay(a) ? a : workDay(b) ? b : null; }
+      if (!day || day < d0 || day > d1) return;
+      out.push({date:day, from:c.from, to:c.to, s:D(day)*1440 + t2m(c.from), e:D(day)*1440 + t2m(c.to), moved, orig:d, dg:[], eg:[]});
+    });
+  }
+  return out.sort((a, b) => a.s - b.s);
+}
+/* Aufgaben: DG bei Gastwechsel (Reinigen + Betten für die neue Belegung) bzw. nur Betten umstellen, wenn derselbe Gast ohne Zwischenreinigung mit anderer Personenzahl kommt;
+   EG nach jeder Veranstaltung mit „Küchenreinigung“. Jede Aufgabe gehört zum ersten Einsatz im möglichen Zeitfenster; gibt es keinen, ist ein Sondereinsatz nötig. */
+function cleanPlan(d0, d1){
+  const from0 = S_(D(d0) - 90), to0 = S_(D(d1) + 90), slots = cleanSlots(from0, to0), special = [], same = cleanSame().map(n => n.toLowerCase());
+  const place = (t, list) => { const sl = slots.find(s => s.e > t.from && s.s < t.to && Math.min(s.e, t.to) - Math.max(s.s, t.from) >= 30); if (sl) sl[list].push(t); else special.push(t); };
+  const st = stayList();
+  st.forEach((a, i) => {
+    const p = i ? st[i - 1] : null, [aS] = stayAbs(a), n = stayN(a), np = p ? stayN(p) : null;
+    const keep = p && cleanKey(p) === cleanKey(a) && same.includes(cleanKey(a));
+    const kind = !keep ? "dg" : np !== n ? "bett" : null; if (!kind) return;
+    place({area:"DG", kind, from:p ? stayAbs(p)[1] : aS - 7*1440, to:aS, stay:a, prev:p, n, np}, "dg");
+  });
+  evList().filter(e => e.kitchenClean && e.status !== "abgesagt" && e.kind !== "notiz").forEach(e => {
+    const sp = span(e); if (!sp) return; const end = D(e.date)*1440 + sp.e;
+    place({area:"EG", kind:"eg", from:end, to:Infinity, ev:e, s:D(e.date)*1440 + sp.s}, "eg");
+  });
+  const inR = m => { const d = S_(Math.floor(m / 1440)); return d >= d0 && d <= d1; };
+  return {slots:slots.filter(s => s.date >= d0 && s.date <= d1), special:special.filter(t => inR(t.from === -Infinity ? t.to : t.from) || inR(t.to === Infinity ? t.from : t.to))};
+}
+/* Gast im DG während des Einsatzes */
+const cleanOcc = s => stayList().map(x => ({x, ab:stayAbs(x)})).filter(q => q.ab[0] < s.e && s.s < q.ab[1]);
+const vmTag = x => x && x.status !== "gebucht" ? ` <span class="stb vm">vorgemerkt</span>` : "";
+function cleanTaskLine(t, s){
+  const ab = s && t.from > s.s ? ` <b>ab ${m2t(t.from % 1440)} Uhr</b>` : "";
+  if (t.area === "EG"){ const e = t.ev, sp = span(e); return `<li class="cl-eg"><span class="ctag eg">EG</span> Küche/EG reinigen nach Veranstaltung ${WD[wdOf(e.date)]} ${fmtY(e.date)} ${e.allDay ? "ganztägig" : m2t(sp.s) + "–" + m2t(sp.e) + " Uhr"}${e.room ? " · " + esc(e.room) : ""}${ab}</li>`; }
+  const a = t.stay, p = t.prev, arr = `Anreise ${absTxt(t.to)}${vmTag(a)}`;
+  if (t.kind === "bett") return `<li class="cl-dg"><span class="ctag dg">DG</span> <b>Betten umstellen: ${t.np} → ${persTxt(t.n)}</b> · derselbe Gast kommt wieder, keine Zwischenreinigung nötig · ${arr}${ab}</li>`;
+  const bed = p && t.np !== t.n ? ` · <b>Bettenwechsel: ${t.np} → ${persTxt(t.n)}</b>` : ` · Betten für ${persTxt(t.n)}`;
+  return `<li class="cl-dg"><span class="ctag dg">DG</span> <b>Gastwechsel – DG reinigen</b>${bed} · ${p ? "Abreise " + absTxt(t.from) + " · " : ""}${arr}${ab}</li>`;
+}
+function cleanCard(s, today){
+  const dg = s.dg.length, eg = s.eg.length, occ = cleanOcc(s);
+  const badge = dg && eg ? `<span class="cbadge both">DG und EG</span>` : dg ? `<span class="cbadge dg">DG</span>` : eg ? `<span class="cbadge eg">EG</span>` : `<span class="cbadge free">nach Bedarf</span>`;
+  const occL = occ.map(q => { const leave = q.ab[1] > s.s && q.ab[1] < s.e, arrive = q.ab[0] > s.s && q.ab[0] < s.e;
+    return `<li class="cl-occ">${BED} ${leave ? `Gast reist um ${m2t(q.ab[1] % 1440)} Uhr ab – DG erst danach betreten` : arrive ? `Gast reist um ${m2t(q.ab[0] % 1440)} Uhr an – DG bis dahin fertig` : `DG belegt (Gast bis ${absTxt(q.ab[1])}) – nicht betreten`}${vmTag(q.x)}</li>`; }).join("");
+  const lines = s.dg.map(t => cleanTaskLine(t, s)).join("") + s.eg.map(t => cleanTaskLine(t, s)).join("") + occL;
+  const mv = s.moved ? ` <span class="lv warn">verlegt: ${esc(WD[wdOf(s.orig)])} ${fmt(s.orig)} ist ${esc(s.moved)} – bitte absprechen</span>` : "";
+  return `<section class="ccard${s.date === today ? " today" : ""}${dg || eg ? "" : " idle"}"><h3><span>${WD[wdOf(s.date)]} ${fmtY(s.date)} · ${s.from}–${s.to} Uhr${s.date === today ? " · heute" : ""}</span>${badge}</h3>${mv}
+    ${lines ? `<ul class="clist">${lines}</ul>` : ""}</section>`;
+}
+function viewReinigung(){
+  const today = todayStr(), wk = UI.cleanWeeks || 8, d1 = S_(D(today) + wk * 7), dp = S_(D(today) - 28);
+  const plan = cleanPlan(dp, d1), next = plan.slots.filter(s => s.date >= today), past = plan.slots.filter(s => s.date < today).reverse();
+  const sp = plan.special.filter(t => (t.to === Infinity ? t.from : t.to) >= D(today)*1440).map(t => `<section class="ccard spec"><h3><span>Sondereinsatz nötig</span><span class="cbadge both">${t.area}</span></h3><p class="notes">Kein regulärer Reinigungstermin im Zeitfenster ${t.from > 0 && t.from !== -Infinity ? "ab " + absTxt(t.from) : ""}${t.to !== Infinity ? " bis " + absTxt(t.to) : ""} – bitte mit SURVIVORS HOME absprechen.</p><ul class="clist">${cleanTaskLine(t, null)}</ul></section>`).join("");
+  const cfg = cleanCfg().slice().sort((a, b) => a.wd - b.wd || a.from.localeCompare(b.from)).map(c => WD[c.wd] + " " + c.from + "–" + c.to).join(", ");
+  const stays = stayList().filter(x => x.to >= dp);
+  const srow = x => `<tr class="${x.to < today ? "past" : ""}"><td class="t">${WD[wdOf(x.from)]} ${fmtY(x.from)}<br><small>${esc(x.fromT || STAY_IN)} Uhr</small></td><td class="t">${WD[wdOf(x.to)]} ${fmtY(x.to)}<br><small>${esc(x.toT || STAY_OUT)} Uhr</small></td><td class="t">${stayNights(x)}</td><td class="t">${stayN(x)}${vmTag(x) ? "<br>" + vmTag(x) : ""}</td></tr>`;
+  const help = `<b>Reinigung</b><ul><li>Reinigungstermine: ${esc(cfg)}${CLEAN ? "" : " (änderbar unter Einstellungen → Reinigung)"}. Feiertag: Einsatz am Tag danach, sonst am Tag davor.</li><li><b>DG</b>: bei Gastwechsel reinigen und Betten für die neue Belegung beziehen; ändert sich die Personenzahl, steht „Bettenwechsel“ dabei. Kommt ein Stammgast ohne Zwischenreinigung${CLEAN ? "" : " (Einstellungen → Reinigung)"} direkt wieder, entfällt die Reinigung; nur bei anderer Personenzahl „Betten umstellen“.</li><li><b>EG</b>: nach jeder Veranstaltung mit Haken „Küchenreinigung“.</li><li>Jede Aufgabe steht beim ersten Reinigungstermin nach der Abreise bzw. Veranstaltung. Liegt kein Termin vor der nächsten Anreise: „Sondereinsatz nötig“.</li>${CLEAN ? "" : "<li>Keine Namen: Die Reinigungsseite zeigt nur Zeiten und Personenzahl.</li>"}<li>„nach Bedarf“: keine besondere Aufgabe – EG oder DG nach Bedarf.</li><li>Vorgemerkte Übernachtungen sind noch nicht sicher.</li></ul>`;
+  const link = CLEAN ? "" : `<p class="notes">Diese Ansicht sehen die Reinigungskräfte unter <a href="${esc(CLEAN_URL)}" target="_blank" rel="noopener">${esc(CLEAN_URL.replace("https://", ""))}</a> (mit eigenem Passwort, ohne Namen; Aktualisierung mit der Routine).</p>`;
+  return `<div class="head"><h2>Reinigung ${qh(help)}</h2><span class="notes">Reinigungstermine: ${esc(cfg)}</span></div>${link}
+  ${sp}
+  <h3 class="sh">Nächste Reinigungstermine</h3>
+  <div class="cgrid">${next.map(s => cleanCard(s, today)).join("") || `<div class="empty">Keine Reinigungstermine im Zeitraum.</div>`}</div>
+  <p><button class="btn" data-cmore="1">weitere 8 Wochen anzeigen</button></p>
+  ${past.length ? `<details class="pastl"><summary>Vergangene Reinigungstermine (letzte 4 Wochen, ${past.length})</summary><div class="cgrid">${past.map(s => cleanCard(s, today)).join("")}</div></details>` : ""}
+  <h3 class="sh">${BED} Belegung Dachgeschoss</h3>
+  ${stays.length ? `<div class="scroll"><table class="list stays cstays"><thead><tr><th>Anreise</th><th>Abreise</th><th>Nächte</th><th>Pers.</th></tr></thead><tbody>${stays.map(srow).join("")}</tbody></table></div><p class="notes">„vorgemerkt“ = noch nicht sicher; ohne Kennzeichen = gebucht.</p>` : `<div class="empty">Keine Übernachtungen eingetragen.</div>`}`;
+}
+/* ---------- Einstellungen: Reinigung ---------- */
+function viewCleanSet(){
+  const cfg = cleanCfg(), own = Array.isArray((S.settings || {}).cleanSlots) && S.settings.cleanSlots.length, same = cleanSame();
+  const rows = cfg.map((c, i) => `<tr><td>${WD[c.wd]}</td><td class="t">${esc(c.from)}–${esc(c.to)} Uhr</td><td><button class="btn ghost" data-cslotdel="${i}">Entfernen</button></td></tr>`).join("");
+  const names = [...new Set(stayList().map(stayName).filter(n => n !== "Gast"))].sort((a, b) => a.localeCompare(b, "de"));
+  const srows = same.map(n => `<tr><td><b>${esc(n)}</b></td><td><button class="btn ghost" data-csamedel="${esc(n)}">Entfernen</button></td></tr>`).join("");
+  const help = `<b>Reinigung</b><ul><li><b>Reinigungstermine</b>: regelmäßige Einsätze der Reinigungskräfte (Standard Mo und Fr 9–12 Uhr). Feiertag: Einsatz am Tag danach, sonst am Tag davor.</li><li><b>Gäste ohne Zwischenreinigung</b>: Kommt dieser Gast direkt wieder (kein anderer Gast dazwischen), wird das DG nicht gereinigt; bei anderer Personenzahl nur „Betten umstellen“. Name genau wie unter „Übernachtungen“.</li><li><b>Reinigungsseite</b>: eigene Seite für die Reinigungskräfte, eigenes Passwort, ohne Namen.</li></ul>`;
+  return `${setNav()}<div class="head"><h2>Reinigung ${qh(help)}</h2></div>
+  <h3 class="sh">Reinigungstermine</h3>
+  <form class="filters" id="cslotForm"><select class="in" id="csWd" aria-label="Wochentag">${opt([1,2,3,4,5,6].map(d => [String(d), WD[d]]), "1")}</select><input class="in" type="time" id="csFrom" value="09:00" step="900" required aria-label="von"><input class="in" type="time" id="csTo" value="12:00" step="900" required aria-label="bis"><button class="btn primary" type="submit">+ Termin</button>${own ? `<button class="btn ghost" type="button" data-cslotdef="1">Standard (Mo und Fr 9–12 Uhr)</button>` : ""}</form>
+  <div class="scroll"><table class="list"><thead><tr><th>Wochentag</th><th>Zeit</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>${own ? "" : `<p class="notes">Standard – noch nicht geändert.</p>`}
+  <h3 class="sh">Gäste ohne Zwischenreinigung</h3>
+  <form class="filters" id="csameForm"><input class="in" id="csName" list="csNames" placeholder="Name wie unter Übernachtungen" required><datalist id="csNames">${names.map(n => `<option>${esc(n)}</option>`).join("")}</datalist><button class="btn primary" type="submit">+ Gast</button></form>
+  ${same.length ? `<div class="scroll"><table class="list"><tbody>${srows}</tbody></table></div>` : `<div class="empty">Keine – nach jedem Gast wird das DG gereinigt.</div>`}
+  <h3 class="sh">Reinigungsseite</h3>
+  <section class="bkc"><p>Seite für die Reinigungskräfte: <a href="${esc(CLEAN_URL)}" target="_blank" rel="noopener">${esc(CLEAN_URL.replace("https://", ""))}</a> – nur Reinigungstermine, Aufgaben und Belegung des DG (Zeiten, Personenzahl), keine Namen, keine Veranstaltungstitel. Aktualisierung mit der Routine.</p>
+  <p>${S.cleanPass ? `<span class="lv info">Passwort gesetzt${S.cleanSet ? " am " + esc(bkWhen(S.cleanSet)) : ""}</span> <details style="display:inline-block"><summary class="notes">anzeigen</summary><code>${esc(S.cleanPass)}</code></details>` : `<span class="lv warn">noch kein Passwort – Reinigungsseite wird nicht erzeugt</span>`}</p>
+  <p><input class="in" type="text" id="cleanPw" autocomplete="off" placeholder="neues Passwort (mind. 12 Zeichen)" style="width:100%;max-width:420px"></p><p><button class="btn primary" data-cleanpw="1">Passwort speichern</button></p>
+  <p class="notes">Anderes Passwort als die Team-Seite wählen. Gilt ab der nächsten Aktualisierung. Lesbar für alle mit Zugriff auf diesen Planer.</p></section>`;
+}
+async function saveCleanSlots(l, msg){
+  const def = JSON.stringify(CLEAN_DEF), v = l.map(c => ({wd:+c.wd, from:c.from, to:c.to})).sort((a, b) => a.wd - b.wd || a.from.localeCompare(b.from));
+  return saveSettings({cleanSlots: !v.length || JSON.stringify(v) === def ? null : v}, msg);
+}
+document.addEventListener("click", async ev => {
+  const t = ev.target.closest("[data-cmore],[data-cslotdel],[data-cslotdef],[data-csamedel],[data-cleanpw]"); if (!t) return;
+  const ds = t.dataset;
+  if (ds.cmore){ UI.cleanWeeks = (UI.cleanWeeks || 8) + 8; const y = window.scrollY; render(); window.scrollTo(0, y); return; }
+  if (ds.cslotdel != null){ const l = cleanCfg().filter((_, i) => i !== +ds.cslotdel); if (!l.length){ toast("Mindestens ein Reinigungstermin nötig"); return; } return saveCleanSlots(l, "Reinigungstermin entfernt"); }
+  if (ds.cslotdef) return saveSettings({cleanSlots:null}, "Standard-Reinigungstermine");
+  if (ds.csamedel != null) return saveSettings({cleanSame: cleanSame().filter(n => n !== ds.csamedel)}, "Gast entfernt");
+  if (ds.cleanpw){ const v = ($("#cleanPw").value || "").trim(); if (v.length < 12){ toast("Mindestens 12 Zeichen"); return; } if (!db){ toast("Nur im Online-Tool möglich"); return; }
+    if (v === S.teamPass){ toast("Bitte ein anderes Passwort als für die Team-Seite"); return; }
+    try { await db.doc("meta/clean").set({pass:v, set:localIso()}); toast("Passwort Reinigungsseite gespeichert – gilt ab der nächsten Aktualisierung"); } catch(e){ toast("Passwort nicht gespeichert"); } }
+});
+document.addEventListener("submit", async ev => {
+  if (ev.target.id === "cslotForm"){ ev.preventDefault();
+    const c = {wd:+$("#csWd").value, from:$("#csFrom").value, to:$("#csTo").value};
+    if (!c.from || !c.to || c.from >= c.to){ toast("Nicht gespeichert – „von“ muss vor „bis“ liegen"); return; }
+    if (cleanCfg().some(x => +x.wd === c.wd && x.from < c.to && c.from < x.to)){ toast("Überschneidet sich mit einem vorhandenen Termin am " + WD[c.wd]); return; }
+    return saveCleanSlots(cleanCfg().concat([c]), "Reinigungstermin eingetragen"); }
+  if (ev.target.id === "csameForm"){ ev.preventDefault();
+    const n = ($("#csName").value || "").trim(); if (!n) return;
+    if (cleanSame().some(x => x.toLowerCase() === n.toLowerCase())){ toast("Schon eingetragen"); return; }
+    return saveSettings({cleanSame: cleanSame().concat([n]).sort((a, b) => a.localeCompare(b, "de"))}, "Gast eingetragen"); }
+});
+/* Reinigungsseite: nur diese Ansicht, ohne Reiter und Kopfzahlen */
+function cleanInit(){
+  document.body.classList.add("clean"); document.title = "SH Reinigung";
+  const h = $("header.top h1"); if (h) h.innerHTML = `Reinigung<small>SURVIVORS HOME · Erdgeschoss und Dachgeschoss</small>`;
+  const t = window.__SHP_DATA || null; if (validBackup(t)) applyBackupLocal(t); else S.loaded = true;
+  const b = $("#banner"); if (b && t && t.created){ const old = (Date.now() - new Date(t.created).getTime()) / 36e5 > 72; b.hidden = false; b.className = old ? "offbar cold" : "offbar"; b.innerHTML = `Stand der Daten: ${esc(bkWhen(t.created))}${old ? " – <b>veraltet, bitte bei SURVIVORS HOME melden</b>" : ""} · <a href="#" data-tlogout="1">abmelden</a>`; }
+  UI.view = "reinigung"; render();
+}
 /* ---------- Start ---------- */
 (function init(){
   try { const v = localStorage.getItem("shp-view"); if (v && VIEWS[v]) UI.view = v === "anfragen" ? "referenten" : v; UI.yearDetail = localStorage.getItem("shp-ydet") === "1"; UI.yPos = localStorage.getItem("shp-ypos") || null; UI.week = localStorage.getItem("shp-week") || UI.week; UI.yRestore = UI.view === "jahr"; } catch(e){}
   applySettings();
   mobInit();
+  if (CLEAN) return cleanInit();
   if (OFFLINE) return offlineInit();
   render();
   const bridge = window.claude && window.claude.use ? window.claude : null;
@@ -2766,6 +2919,7 @@ document.addEventListener("click", ev => { const a = ev.target.closest("a.mnote"
     sub("series","series"); sub("referents","referents"); sub("events","events"); sub("absences","absences"); sub("rounds","rounds"); sub("msgs","msgs");
     db.doc("meta/accepted").onSnapshot(snap => { S.accepted = snap.exists ? Object.assign({}, (snap.data()||{}).items||{}) : {}; render(); }, () => {});
     db.doc("meta/team").onSnapshot(snap => { const t = snap.exists ? (snap.data() || {}) : {}; S.teamPass = t.pass || ""; S.teamSet = t.set || ""; if (UI.view === "sicherung") render(); }, () => {});
+    db.doc("meta/clean").onSnapshot(snap => { const t = snap.exists ? (snap.data() || {}) : {}; S.cleanPass = t.pass || ""; S.cleanSet = t.set || ""; if (UI.view === "creinigung") render(); }, () => {});
     db.doc("meta/websync").onSnapshot(snap => { S.websync = snap.exists ? (snap.data() || {}) : null; S.wsLoaded = true; if (S.loaded) render(); }, () => {});
     db.doc("meta/settings").onSnapshot(snap => { S.settings = snap.exists ? Object.assign({}, snap.data() || {}) : {}; applySettings(); done("settings"); }, () => done("settings"));
     db.doc("meta/stays").onSnapshot(snap => { const v = snap.exists ? (snap.data() || {}) : {}; S.stays = Object.assign({}, v.items || {}); S.fairs = Object.assign({}, v.fairs || {}); if (S.loaded) render(); }, () => {});
