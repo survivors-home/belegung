@@ -2841,17 +2841,23 @@ function cleanCard(s, today){
    Gäste ohne Zwischenreinigung (cleanSame, z. B. Nadja) mit Namen in Pink, alle anderen anonym „Gast“ in Grau. Beschriftungen nie überlappend (CSS max()). */
 const cleanKeep = x => cleanSame().some(n => n.toLowerCase() === cleanKey(x));
 const dShort = m => { const d = S_(Math.floor(m / 1440)); return (+d.slice(8, 10)) + "." + (+d.slice(5, 7)) + "."; };
-function cleanRail(a, b, first){
-  const LH = 36, span = Math.max(1, b - a), pc = m => Math.min(100, Math.max(0, (m - a) / span * 100)), segs = [], labs = [];
+function cleanRail(a, ae, b, first){
+  /* Zeit → Höhe (v131, Sebastian 03.11.2026): Der Punkt (12–24 px) steht für den Einsatz [a, ae]. Liegt eine An-/Abreise im Einsatz,
+     liegt der Übergang knapp unter dem Punkt (Balken reicht in den Punkt hinein); danach linear bis zum Punkt der nächsten Zeile
+     (= 100 % der Leiste + 12 px, die Leiste reicht 10 px über den Zeilenabstand). Position = calc(f·100% + px). */
+  const LH = 36, D1 = 27, NX = 12, segs = [], labs = [];
+  const y = m => m <= a ? {f:0, px:0} : m < ae ? {f:0, px:D1} : m >= b ? {f:1, px:NX} : (f => ({f, px:D1 + f * (NX - D1)}))((m - ae) / Math.max(1, b - ae));
+  const css = q => `calc(${(q.f * 100).toFixed(2)}% + ${q.px.toFixed(1)}px)`;
   stayList().forEach(x => { const [s, e] = stayAbs(x); if (e <= a || s >= b) return;
     const keep = cleanKeep(x), cls = (keep ? " keep" : "") + (x.status !== "gebucht" ? " vm" : ""), nm = keep ? esc(stayName(x)) : "Gast";
-    segs.push(`<i class="cseg${cls}${s < a ? " ct" : ""}${e > b ? " cb" : ""}" style="top:${pc(s).toFixed(1)}%;bottom:${(100 - pc(e)).toFixed(1)}%"></i>`);
-    if (s >= a) labs.push({p:pc(s), h:`<b>${nm}</b> ${persIc(stayN(x))}<br>${IC_IN} ${dShort(s)}`, cls});
-    else if (first) labs.push({p:0, h:`<b>${nm}</b> ${persIc(stayN(x))}<br>${IC_IN} seit ${dShort(s)}`, cls});
-    if (e < b) labs.push({p:pc(e), h:`${IC_OUT} ${dShort(e)}`, cls:cls + " out"}); });
-  labs.sort((x, y) => x.p - y.p);
-  const lab = labs.map((l, i) => `<span class="clab${l.cls}" style="top:min(max(${labs.slice(0, i + 1).map((m, j) => `calc(${m.p.toFixed(1)}% + ${(i - j) * LH}px)`).join(", ")}), calc(100% - ${(labs.length - i) * LH}px))">${l.h}</span>`).join("");
-  return {html:`<div class="crail"><i class="cdot"></i>${segs.join("")}${lab}</div>`, min:labs.length * LH + 6};
+    const ys = y(s), ye = y(e);
+    segs.push(`<i class="cseg${cls}${s < a ? " ct" : ""}${e >= b ? " cb" : ""}" style="top:${css(ys)};bottom:calc(${((1 - ye.f) * 100).toFixed(2)}% - ${ye.px.toFixed(1)}px)"></i>`);
+    if (s >= a) labs.push({q:ys, h:`<b>${nm}</b> ${persIc(stayN(x))}<br>${IC_IN} ${dShort(s)}`, cls});
+    else if (first) labs.push({q:{f:0, px:0}, h:`<b>${nm}</b> ${persIc(stayN(x))}<br>${IC_IN} seit ${dShort(s)}`, cls});
+    if (e < b) labs.push({q:ye, h:`${IC_OUT} ${dShort(e)}`, cls:cls + " out"}); });
+  labs.sort((u, v) => (u.q.f - v.q.f) || (u.q.px - v.q.px));
+  const lab = labs.map((l, i) => `<span class="clab${l.cls}" style="top:min(max(${labs.slice(0, i + 1).map((m, j) => `calc(${(m.q.f * 100).toFixed(2)}% + ${(m.q.px + (i - j) * LH).toFixed(1)}px)`).join(", ")}), calc(100% - ${(labs.length - i) * LH}px))">${l.h}</span>`).join("");
+  return {html:`<div class="crail"><i class="cdot"></i>${segs.join("")}${lab}</div>`, min:labs.length * LH + D1};
 }
 function viewReinigung(){
   const today = todayStr(), wk = UI.cleanWeeks || 8, d1 = S_(D(today) + wk * 7), dp = S_(D(today) - 28);
@@ -2865,7 +2871,7 @@ function viewReinigung(){
   if (CLEAN) cleanHead(help);
   return `${CLEAN ? "" : `<div class="head"><h2>Reinigungstermine ${qh(help)}</h2><span class="notes">${esc(cfg)}</span></div>`}${link}
   ${sp}
-  ${next.length ? `<div class="ctl">${next.map((s, i) => { const nx = next[i + 1] || cleanSlots(S_(D(s.date) + 1), S_(D(s.date) + 21))[0], r = cleanRail(s.s, nx ? nx.s : s.s + 4*1440, i === 0);
+  ${next.length ? `<div class="ctl">${next.map((s, i) => { const nx = next[i + 1] || cleanSlots(S_(D(s.date) + 1), S_(D(s.date) + 21))[0], r = cleanRail(s.s, s.e, nx ? nx.s : s.s + 4*1440, i === 0);
     return `<div class="ctrow" style="min-height:${r.min}px">${r.html}${cleanCard(s, today)}</div>`; }).join("")}</div>` : `<div class="empty">Keine Reinigungstermine im Zeitraum.</div>`}
   <p><button class="btn" data-cmore="1">weitere 8 Wochen anzeigen</button></p>
   ${past.length ? `<details class="pastl"><summary>Vergangene Reinigungstermine (letzte 4 Wochen, ${past.length})</summary><div class="cgrid">${past.map(s => cleanCard(s, today)).join("")}</div></details>` : ""}
