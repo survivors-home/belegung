@@ -1,37 +1,62 @@
 #!/usr/bin/env node
-/* SURVIVORS HOME – Team-Seite: verschlüsselte Daten für team/data.json
-   Aufruf: node tools/team/build.mjs <export-ordner> [team/data.json]
-   Liest den Datenbank-Export (wie tools/build.py) inkl. referents und meta/team.json (Passwort).
-   Ohne Passwort: nichts schreiben (Team-Seite bleibt unverändert), Exit 0.
+/* SURVIVORS HOME – Team-Seite: verschlüsselte Daten für team/data.json, Reinigungsseite: reinigung/data.json (ab v125)
+   Aufruf: node tools/team/build.mjs <export-ordner> [team/data.json] [reinigung/data.json]
+   Liest den Datenbank-Export (wie tools/build.py) inkl. referents, meta/team.json (Team-Passwort) und meta/clean.json (Passwort Reinigungsseite).
+   Ohne Passwort: die jeweilige Datei nicht schreiben (Seite bleibt unverändert), Exit 0.
    Verschlüsselung: PBKDF2-SHA256 (310 000 Runden) → AES-256-GCM; nur Node-Bordmittel. */
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-const [,, dir, outArg] = process.argv;
+const [,, dir, outArg, cleanArg] = process.argv;
 if (!dir){ console.error("Aufruf: node tools/team/build.mjs <export-ordner> [team/data.json]"); process.exit(2); }
-const out = outArg || path.join(path.dirname(new URL(import.meta.url).pathname), "..", "..", "team", "data.json");
+const ROOT = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "..");
+const out = outArg || path.join(ROOT, "team", "data.json"), cleanOut = cleanArg || path.join(ROOT, "reinigung", "data.json");
 const load = col => { const d = path.join(dir, col), m = {}; if (!fs.existsSync(d)) return m;
   for (const f of fs.readdirSync(d)) { if (!f.endsWith(".json")) continue; let o = JSON.parse(fs.readFileSync(path.join(d, f), "utf8"));
     if (o && typeof o.data === "object" && o.data) o = o.data; const id = f.slice(0, -5); m[id] = Object.assign({}, o, {id}); } return m; };
 const events = load("events"), series = load("series"), absences = load("absences"), referentsRaw = load("referents"), meta = load("meta");
-const pass = ((meta.team || {}).pass || "").trim();
-if (!pass){ console.log("Team-Seite: kein Team-Passwort gesetzt – unverändert."); process.exit(0); }
-if (!Object.keys(events).length || !Object.keys(series).length){ console.error("Abbruch: Export ohne Termine oder Reihen – Team-Seite unverändert."); process.exit(1); }
+const pass = ((meta.team || {}).pass || "").trim(), cleanPass = ((meta.clean || {}).pass || "").trim();
+if (!pass && !cleanPass){ console.log("Team-Seite und Reinigungsseite: kein Passwort gesetzt – unverändert."); process.exit(0); }
+if (!Object.keys(events).length || !Object.keys(series).length){ console.error("Abbruch: Export ohne Termine oder Reihen – Team-Seite und Reinigungsseite unverändert."); process.exit(1); }
+if (pass && cleanPass && pass === cleanPass){ console.error("Abbruch: Reinigungsseite und Team-Seite haben dasselbe Passwort – bitte im Planer ändern. Beide Seiten unverändert."); process.exit(1); }
 /* Datensparsam: Kontaktdaten und Freitext der Referenten entfernen (für Prüfregeln reichen Name und Verfügbarkeiten) */
 const DROP = ["email","phone","mobile","contact","salutation","notes","address","role"];
 const referents = {}; for (const [id, r] of Object.entries(referentsRaw)) { const x = Object.assign({}, r); DROP.forEach(k => delete x[k]); referents[id] = x; }
 const now = new Date(), berlin = new Date(now.toLocaleString("en-US", {timeZone:"Europe/Berlin"}));
 const p2 = n => String(n).padStart(2, "0");
 const created = `${berlin.getFullYear()}-${p2(berlin.getMonth()+1)}-${p2(berlin.getDate())}T${p2(berlin.getHours())}:${p2(berlin.getMinutes())}:00`;
+const settings = meta.settings ? Object.fromEntries(Object.entries(meta.settings).filter(([k]) => k !== "id")) : null;
 const backup = {format:"survivors-home-programmplaner-backup", version:1, created, source:"team",
   collections:{events, series, referents, absences, rounds:{}, msgs:{}},
-  meta:{accepted:{items:(meta.accepted || {}).items || {}}, weeks:{status:(meta.weeks || {}).status || {}}, ...(meta.settings ? {settings:Object.fromEntries(Object.entries(meta.settings).filter(([k]) => k !== "id"))} : {}),
+  meta:{accepted:{items:(meta.accepted || {}).items || {}}, weeks:{status:(meta.weeks || {}).status || {}}, ...(settings ? {settings} : {}),
     /* v121: Übernachtungsgäste im Dachgeschoss (mit Namen, Sebastian 02.11.2026) und Messen – nur Team-Seite, nie öffentliche Seite */
     ...(meta.stays ? {stays:{items:meta.stays.items || {}, fairs:meta.stays.fairs || {}}} : {})}};
-const iter = 310000, salt = crypto.randomBytes(16), iv = crypto.randomBytes(12);
-const key = crypto.pbkdf2Sync(pass, salt, iter, 32, "sha256");
-const c = crypto.createCipheriv("aes-256-gcm", key, iv);
-const ct = Buffer.concat([c.update(JSON.stringify(backup), "utf8"), c.final(), c.getAuthTag()]);
-fs.writeFileSync(out, JSON.stringify({v:1, kdf:"PBKDF2-SHA256", iter, salt:salt.toString("base64"), iv:iv.toString("base64"), ct:ct.toString("base64"), created}));
-console.log(`${out}: Team-Seite ${Object.keys(events).length} Termine, Stand ${created}`);
+function seal(pw, obj, file){
+  const iter = 310000, salt = crypto.randomBytes(16), iv = crypto.randomBytes(12);
+  const key = crypto.pbkdf2Sync(pw, salt, iter, 32, "sha256");
+  const c = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const ct = Buffer.concat([c.update(JSON.stringify(obj), "utf8"), c.final(), c.getAuthTag()]);
+  fs.mkdirSync(path.dirname(file), {recursive:true});
+  fs.writeFileSync(file, JSON.stringify({v:1, kdf:"PBKDF2-SHA256", iter, salt:salt.toString("base64"), iv:iv.toString("base64"), ct:ct.toString("base64"), created}));
+}
+if (pass){ seal(pass, backup, out); console.log(`${out}: Team-Seite ${Object.keys(events).length} Termine, Stand ${created}`); }
+else console.log("Team-Seite: kein Team-Passwort gesetzt – unverändert.");
+
+/* v125 Reinigungsseite (externe Reinigungskräfte, Sebastian 02.11.2026): nur Übernachtungen im DG ohne Namen und Notizen
+   (Namen durch Kürzel G1, G2 … ersetzt – nötig für „Gäste ohne Zwischenreinigung“), Messen nicht,
+   von den Terminen nur die mit „Küchenreinigung“ und nur Datum, Zeit, Raum, Status – keine Titel, Reihen, Referenten. */
+if (cleanPass){
+  const items = ((meta.stays || {}).items) || {}, nm = x => String((x && x.name) || "").trim();
+  const names = [...new Set(Object.values(items).map(nm))].sort(), ps = Object.fromEntries(names.map((n, i) => [n, "G" + (i + 1)]));
+  const psL = Object.fromEntries(names.map(n => [n.toLowerCase(), ps[n]]));
+  const cItems = {}; for (const [id, x] of Object.entries(items)){ const y = {}; ["from","fromT","to","toT","persons","status"].forEach(k => { if (x[k] != null) y[k] = x[k]; }); y.name = ps[nm(x)]; cItems["s" + (Object.keys(cItems).length + 1)] = y; }
+  const cEv = {}; for (const e of Object.values(events)){ if (!e.kitchenClean || !e.date) continue; const y = {}; ["date","start","dur","allDay","room","status","kind","kitchenClean"].forEach(k => { if (e[k] != null) y[k] = e[k]; }); cEv["k" + (Object.keys(cEv).length + 1)] = y; }
+  const st = settings || {}, cSet = {};
+  ["cleanSlots","feierExtra"].forEach(k => { if (st[k] != null) cSet[k] = st[k]; });
+  if (Array.isArray(st.cleanSame)) cSet.cleanSame = st.cleanSame.map(n => psL[String(n || "").trim().toLowerCase()]).filter(Boolean);
+  const clean = {format:"survivors-home-programmplaner-backup", version:1, created, source:"clean",
+    collections:{events:cEv, series:{}, referents:{}, absences:{}, rounds:{}, msgs:{}}, meta:{settings:cSet, stays:{items:cItems, fairs:{}}}};
+  seal(cleanPass, clean, cleanOut);
+  console.log(`${cleanOut}: Reinigungsseite ${Object.keys(cItems).length} Übernachtungen, ${Object.keys(cEv).length} Termine mit Küchenreinigung, Stand ${created}`);
+} else console.log("Reinigungsseite: kein Passwort gesetzt – unverändert.");
