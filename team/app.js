@@ -11,7 +11,7 @@ const ROOMS = ["Workshopraum","Atelier","Wohnzimmer","Küche/Esszimmer","Innenho
 const EG = ["Workshopraum","Atelier","Wohnzimmer","Küche/Esszimmer","Innenhof"];
 const LANES = ["Workshopraum","Atelier","Wohnzimmer","Küche/Esszimmer","Innenhof","unterwegs","DG (Notfall)","online","Raum offen"];
 const STATUS = ["Idee","Option","angefragt","zugesagt","fix","in WP angelegt","veröffentlicht","abgesagt"];
-const KINDS = {va:"Veranstaltung",vermietung:"Vermietung (keine SH-VA)",notiz:"Notiz (kein Termin)"};
+const KINDS = {va:"Veranstaltung",vermietung:"vermietet oder nicht öffentlich",notiz:"Notiz (kein Termin)"};
 const FORMS = ["Beratung","Gemeinsam aktiv","Mitmach-Kurs","Impuls & Austausch","Workshop","Beisammensein","Selbsthilfetreffen","Expertenrunde","Vortrag","Event"];
 const WD = ["So","Mo","Di","Mi","Do","Fr","Sa"];
 const WDL = ["sonntags","montags","dienstags","mittwochs","donnerstags","freitags","samstags"];
@@ -49,7 +49,7 @@ function applySettings(){
 }
 
 /* ---------- Zustand ---------- */
-const S = {series:{}, referents:{}, events:{}, absences:{}, weeks:{}, accepted:{}, rounds:{}, msgs:{}, settings:{}, loaded:false};
+const S = {series:{}, referents:{}, events:{}, absences:{}, weeks:{}, accepted:{}, rounds:{}, msgs:{}, settings:{}, stays:{}, fairs:{}, loaded:false};
 const UI = {lPast:false, serFilter:"alle", view:"jahr", week:null, month:"alle", status:"alle", onlyIssues:false, q:"", drawer:null};
 try { UI.sender = localStorage.getItem("shp-sender") || ""; } catch(e){ UI.sender = ""; }
 let db = null, downloads = null, ISS = new Map();
@@ -83,13 +83,34 @@ function deadlineOf(e){
     return {l:"warn", f8, short: wk + " Wo.", t:"Vorwarnung: bis " + fmtY(f8) + " veröffentlichen – Status „" + e.status + "“ ist noch unter „fix“"}; }
   return null;
 }
-/* Tageszustand für das Jahresüberblick: er = Frist verpasst, wn = Vorwarnung, ok = alle veröffentlicht */
+/* Tageszustand für das Jahresüberblick: er = Frist verpasst, wn = Vorwarnung, ok = alle veröffentlicht, op = Veranstaltungen offen, "" = keine Veranstaltung (leer, nur Vermietung/Notiz/abgesagt) */
 function dayState(evs){
   const va = evs.filter(e => e.kind === "va" && e.status !== "abgesagt"); if (!va.length) return "";
   const ds = va.map(deadlineOf);
   if (ds.some(x => x && x.l === "err")) return "er"; if (ds.some(x => x && x.l === "warn")) return "wn";
-  return va.every(e => e.status === "veröffentlicht") ? "ok" : "";
+  return va.every(e => e.status === "veröffentlicht") ? "ok" : "op";
 }
+/* Übernachtungsgäste im Dachgeschoss und Messen in Berlin (v121, DB-Dokument meta/stays {items, fairs}).
+   Eine Einheit im DG; Bezug standardmäßig 13:00, Auszug 10:00; Status vorgemerkt/gebucht; 1–4 Personen. Nicht auf der öffentlichen Seite. */
+const STAY_ROOM = "DG (Notfall)", STAY_ST = ["vorgemerkt","gebucht"];
+/* Bett-Symbol: Übernachtung auf einen Blick von einer Veranstaltung unterscheidbar (Sebastian 02.11.2026) */
+const BED = `<svg class="bed" viewBox="0 0 24 24" aria-hidden="true"><g fill="currentColor"><rect x="2" y="5" width="2.2" height="14" rx=".6"/><rect x="2" y="14" width="20" height="2.2"/><rect x="19.8" y="12" width="2.2" height="7" rx=".6"/><circle cx="7.6" cy="10.6" r="2.4"/><path d="M11 8.8h7a3.2 3.2 0 0 1 3.2 3.2v1H11z"/></g></svg>`;
+let STAY_IN = "13:00", STAY_OUT = "10:00";
+const stayList = () => Object.values(S.stays || {}).filter(x => x && x.from && x.to).sort((a,b) => (a.from + (a.fromT||"")).localeCompare(b.from + (b.fromT||"")));
+const stayAbs = x => [D(x.from)*1440 + t2m(x.fromT || STAY_IN), D(x.to)*1440 + t2m(x.toT || STAY_OUT)];
+/* Belegung des DG am Tag d in Minuten ab 0 Uhr: [{x, s, e}] */
+function staysOn(d){ const d0 = D(d)*1440; return stayList().map(x => { const [a, b] = stayAbs(x), s = Math.max(a, d0) - d0, e = Math.min(b, d0 + 1440) - d0; return e > s ? {x, s, e} : null; }).filter(Boolean); }
+const stayClash = x => { const [a, b] = stayAbs(x); return stayList().filter(y => y.id !== x.id && (() => { const [c, e] = stayAbs(y); return a < e && c < b; })()); };
+const stayNights = x => Math.max(0, Math.round(D(x.to) - D(x.from)));
+const stayPer = x => WD[wdOf(x.from)] + " " + fmt(x.from) + " " + (x.fromT || STAY_IN) + " – " + WD[wdOf(x.to)] + " " + fmtY(x.to) + " " + (x.toT || STAY_OUT);
+const stayPers = x => { const n = Math.min(4, Math.max(1, +x.persons || 1)); return n + (n === 1 ? " Person" : " Personen"); };
+/* Wochenansicht endet samstags: bleibt der Gast über Nacht, Hinweis auf die Abreise (Sebastian 02.11.2026) */
+const stayOutSat = (q, d) => wdOf(d) === 6 && q.e >= 1440 && q.x.to > d ? "Abreise " + (q.x.to === S_(D(d) + 1) ? "Sonntag" : WD[wdOf(q.x.to)] + " " + fmt(q.x.to)) + " " + (q.x.toT || STAY_OUT) : "";
+const stayName = x => (x.name || "").trim() || "Gast";
+const stayTip = x => "Übernachtung (" + (x.status || "vorgemerkt") + "): " + stayName(x) + " · " + stayPers(x) + " · " + stayPer(x) + (x.note ? " · " + x.note : "");
+const fairList = () => Object.values(S.fairs || {}).filter(f => f && f.from).sort((a,b) => a.from.localeCompare(b.from));
+const fairsOn = d => fairList().filter(f => f.from <= d && d <= (f.to || f.from));
+const fairPer = f => fmt(f.from) + (f.to && f.to !== f.from ? "–" + fmtY(f.to) : (f.from ? f.from.slice(0,4) : ""));
 const todayStr = () => { if (window.__FAKE_TODAY) return window.__FAKE_TODAY; const d = new Date(); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); };
 function firstThu(y){ const j4 = D(y+"-01-04"); return j4 - ((new Date(j4*864e5).getUTCDay()+6)%7) + 3; }
 function isoWeek(s){ const n = D(s); const th = n - ((new Date(n*864e5).getUTCDay()+6)%7) + 3; const y = new Date(th*864e5).getUTCFullYear(); return [y, 1 + Math.round((th-firstThu(y))/7)]; }
@@ -301,6 +322,9 @@ function computeIssues(list){
     if (/Caféhaus/i.test(nm) && w === 3) add(e,"err","Caféhaus nie mittwochs");
     if (/Ernährungs-Coach/i.test(nm) && !(byDate[e.date]||[]).some(x => /Walk and Talk/i.test(serName(x)))) add(e,"info","Ohne Walk-and-Talk-Kopplung (neu ab 2027)");
   }
+  /* Übernachtungsgäste im Dachgeschoss (v121): Belegung des DG (inkl. Aufbau, Check-in, Nachlauf) überschneidet eine Übernachtung → gebucht = Fehler, vorgemerkt = Hinweis */
+  if (Object.keys(S.stays || {}).length) for (const e of act) for (const o of occ(e).filter(x => x[2] === STAY_ROOM)) for (const q of staysOn(e.date))
+    if (ov(o[0], o[1], q.s, q.e)) add(e, q.x.status === "gebucht" ? "err" : "warn", "Übernachtungsgäste im Dachgeschoss (" + (q.x.status || "vorgemerkt") + "): " + stayName(q.x) + ", " + stayPer(q.x), {from:Math.max(o[0], q.s), to:Math.min(o[1], q.e), lanes:[STAY_ROOM]});
   for (const arr of Object.values(byDate)){
     for (let i = 0; i < arr.length; i++) for (let j = i+1; j < arr.length; j++) pair(arr[i], arr[j], add);
     const cafe = arr.find(e => /Caféhaus/i.test(serName(e))), back = arr.find(e => /Backen/i.test(serName(e))), zei = arr.find(e => e.seriesId === "gemeinsames-zeichnen" || /^Gemeinsames Zeichnen/i.test(serName(e)));
@@ -484,14 +508,15 @@ function viewJahr(){
         return `<i class="yseg${e.kind==="vermietung"?" rent":""}${" "+stCls(e)}${worst(e.id)==="err"?" bad":""}" style="left:${l}%;width:${w}%;top:${li/nl*100}%;height:${100/nl}%;background-color:${e.kind==="vermietung"?"var(--muted)":t[0]}" title="${esc((e.start||"–")+"–"+m2t(sp.e)+" "+evName(e))}"></i>` + (afterOf(e) && !e.allDay && sp.e < T1 ? `<i class="ytail" style="left:${(sp.e-T0)/TS*100}%;width:${Math.min(afterOf(e), T1-sp.e)/TS*100}%;top:${li/nl*100}%;height:${100/nl}%;--c:${e.kind==="vermietung"?"var(--muted)":t[0]}" title="${esc("Nachlauf Gäste bis "+m2t(sp.e+afterOf(e))+" · "+evName(e))}"></i>` : ""); }).join("");
       const noteMark = evs.some(e => e.kind === "notiz") ? `<span class="notes" title="${esc(evs.filter(e => e.kind==="notiz").map(evName).join(", "))}">✎</span>` : "";
       const dst = dayState(evs), past = d < todayStr(); dsts.push(dst);
+      const sts = staysOn(d), sIcon = sts.length ? `<span class="sti${sts.every(q => q.x.status === "gebucht") ? "" : " vm"}" title="${esc(sts.map(q => stayTip(q.x)).join("\n"))}">${BED}</span>` : "";
       const dIcon = dst === "er" ? `<span class="dsi er" title="Online-Frist verpasst">!</span>` : dst === "wn" ? `<span class="dsi wn" title="Vorwarnung: Status zu niedrig (${WARN_DAYS/7} Wochen vorher mind. fix)">!</span>` : dst === "ok" ? `<span class="dsi ok" title="Alle Termine veröffentlicht">✓</span>` : "";
-      return `<td class="dcell${hol?" hol":""}${fer?" fer":""}${past?" past":""}" data-goweek="${d}" title="${esc(fer||"")}"><span class="dn">${d.slice(8)}${dIcon}${busy ? `<span class="busy">${String(Math.round(busy/30)/2).replace(".",",")} h</span>` : ""}${noteMark}</span><div class="dots"><div class="ytl">${tl}</div></div><div class="ychips">${chips}</div></td>`;
+      return `<td class="dcell${hol?" hol":""}${fer?" fer":""}${past?" past":""}" data-goweek="${d}" title="${esc(fer||"")}"><span class="dn">${d.slice(8)}${dIcon}${sIcon}${busy ? `<span class="busy">${String(Math.round(busy/30)/2).replace(".",",")} h</span>` : ""}${noteMark}</span><div class="dots"><div class="ytl">${tl}</div></div><div class="ychips">${chips}</div></td>`;
     }).join("");
-    const fer = [...new Set(days.map(ferienOn).filter(Boolean))];
+    const fer = [...new Set(days.map(ferienOn).filter(Boolean).concat(days.flatMap(d => fairsOn(d).map(f => "Messe: " + f.name))))];
     const kwSt = dsts.includes("er") ? " kw-er" : dsts.includes("wn") ? " kw-wn" : (dsts.some(Boolean) && dsts.every(x => x === "ok" || x === "") && dsts.includes("ok") ? " kw-ok" : ""), wPast = S_(D(mon)+6) < todayStr();
-    rows.push(`<tr class="${st}${newM?" month":""}${wPast?" past":""}${UI.yOpen === key ? " yopen" : ""}" data-ykw="${key}"><td class="mname">${newM?MONTHS[m].slice(0,3)+yLab:""}</td><td class="kw${kwSt}" title="${kwSt===" kw-er"?"Woche mit verpasster Online-Frist":kwSt===" kw-wn"?"Woche mit Vorwarnung":kwSt===" kw-ok"?"Alle Termine dieser Woche mit Status sind veröffentlicht":""}">${w}</td><td class="rng">${fmtRng(days[0], S_(D(mon)+6))}</td><td><button class="wkst ${st}" data-wk="${key}">${stLab(st)}</button></td>${cells}<td class="notes">${esc([...fer, ...notes].join(" · "))}</td><td class="wkissue">${cnt.err?`<span class="lv err">${cnt.err}</span> `:""}${cnt.warn?`<span class="lv warn">${cnt.warn}</span>`:""}</td></tr>`);
+    rows.push(`<tr class="${st}${newM?" month":""}${wPast?" past":""}${UI.yOpen === key ? " yopen" : ""}" data-ykw="${key}"><td class="mname">${newM?MONTHS[m].slice(0,3)+yLab:""}</td><td class="kw${kwSt}" title="${kwSt===" kw-er"?"Woche mit verpasster Online-Frist":kwSt===" kw-wn"?"Woche mit Vorwarnung":kwSt===" kw-ok"?"Alle Tage mit Veranstaltungen haben ✓ (alle veröffentlicht)":""}">${w}</td><td class="rng">${fmtRng(days[0], S_(D(mon)+6))}</td><td><button class="wkst ${st}" data-wk="${key}">${stLab(st)}</button></td>${cells}<td class="notes">${esc([...fer, ...notes].join(" · "))}</td><td class="wkissue">${cnt.err?`<span class="lv err">${cnt.err}</span> `:""}${cnt.warn?`<span class="lv warn">${cnt.warn}</span>`:""}</td></tr>`);
   }
-  const yHelp = `<b>Jahresüberblick</b> (Oktober 2026 bis Dezember ${YEAR})<ul><li>Tag anklicken öffnet die Wochenansicht; neue Termine dort mit „+ Termin“ am Tag anlegen.</li><li>Termin anklicken öffnet den Termin.</li><li><b>Ungespeicherte Änderungen</b> im Dialog: geänderte Felder magenta umrahmt mit Balken links, betroffene Bereiche mit „● geändert“, unten die Anzahl. Verschwindet nach „Speichern“ oder wenn der alte Wert wieder eingetragen wird.</li><li><b>Duplizieren</b> (im Termin): übernimmt alle Einstellungen inkl. Status; nur die Startzeit ist leer und muss neu eingetragen werden. Das Duplikat ist oben violett als „Duplikat“ markiert und erst nach „Speichern“ angelegt.</li><li>Kompakt: Maus über eine Woche zeigt deren Termine mit Startzeit.</li><li>Kopfleiste und Steuerleiste bleiben beim Scrollen oben stehen.</li><li>Die oberste sichtbare Woche wird gemerkt: beim Zurückwechseln (auch nach Neuladen) steht der Überblick wieder dort.</li><li><b>Heute</b>: schiebt die aktuelle Woche ganz nach oben und klappt sie auf (bleibt aufgeklappt, bis eine andere Darstellung gewählt wird). Liegt heute außerhalb des Überblicks, springt er zur ersten bzw. letzten Woche.</li><li>Zeitstrahl je Tag: Belegung ${OPEN_FROM}–${OPEN_TO} Uhr, Zahl = belegte Stunden.</li><li>Roter blinkender Punkt: Termin mit Fehler.</li><li>Blass/gestrichelt: Idee, Option, angefragt (je blasser, desto früher im Ablauf).</li><li>Am Tag: <b style="color:#2e8b57">✓</b> alle Termine veröffentlicht · <b style="color:#e8a200">!</b> Vorwarnung (${WARN_DAYS/7} Wochen vorher Status unter „fix“) · <b style="color:#e5322d">!</b> Online-Frist verpasst (${ON_DAYS/7} Wochen vorher nicht veröffentlicht).</li><li>Farbige Kante an der KW: schlechtester Tag der Woche (rot, gelb, grün).</li><li>Vergangene Tage und Wochen: schraffiert.</li></ul>`;
+  const yHelp = `<b>Jahresüberblick</b> (Oktober 2026 bis Dezember ${YEAR})<ul><li>Tag anklicken öffnet die Wochenansicht; neue Termine dort mit „+ Termin“ am Tag anlegen.</li><li>Termin anklicken öffnet den Termin.</li><li><b>Ungespeicherte Änderungen</b> im Dialog: geänderte Felder magenta umrahmt mit Balken links, betroffene Bereiche mit „● geändert“, unten die Anzahl. Verschwindet nach „Speichern“ oder wenn der alte Wert wieder eingetragen wird.</li><li><b>Duplizieren</b> (im Termin): übernimmt alle Einstellungen inkl. Status; nur die Startzeit ist leer und muss neu eingetragen werden. Das Duplikat ist oben violett als „Duplikat“ markiert und erst nach „Speichern“ angelegt.</li><li>Kompakt: Maus über eine Woche zeigt deren Termine mit Startzeit.</li><li>Kopfleiste und Steuerleiste bleiben beim Scrollen oben stehen.</li><li>Die oberste sichtbare Woche wird gemerkt: beim Zurückwechseln (auch nach Neuladen) steht der Überblick wieder dort.</li><li><b>Heute</b>: schiebt die aktuelle Woche ganz nach oben und klappt sie auf (bleibt aufgeklappt, bis eine andere Darstellung gewählt wird). Liegt heute außerhalb des Überblicks, springt er zur ersten bzw. letzten Woche.</li><li>Zeitstrahl je Tag: Belegung ${OPEN_FROM}–${OPEN_TO} Uhr, Zahl = belegte Stunden.</li><li>Roter blinkender Punkt: Termin mit Fehler.</li><li>Blass/gestrichelt: Idee, Option, angefragt (je blasser, desto früher im Ablauf).</li><li>Am Tag: <b style="color:#2e8b57">✓</b> alle Termine veröffentlicht · <b style="color:#e8a200">!</b> Vorwarnung (${WARN_DAYS/7} Wochen vorher Status unter „fix“) · <b style="color:#e5322d">!</b> Online-Frist verpasst (${ON_DAYS/7} Wochen vorher nicht veröffentlicht).</li><li>Farbige Kante an der KW: rot = ein Tag mit verpasster Online-Frist, gelb = ein Tag mit Vorwarnung, grün = jeder Tag mit Veranstaltungen hat ✓ (leere Tage und Tage nur mit Notizen oder Einträgen „vermietet oder nicht öffentlich“ zählen nicht).</li><li>Am Tag: <span class="sti">${BED}</span> Übernachtungsgäste im Dachgeschoss (blass = vorgemerkt); Messen in Berlin stehen rechts in der Notizspalte. Details im Reiter „Übernachtungen“.</li><li>Vergangene Tage und Wochen: schraffiert.</li></ul>`;
   /* Steuerleiste + Tabellenkopf kommen in die feste Kopfleiste (ein einziges klebendes Element) */
   const cg = `<colgroup><col class="c-m"><col class="c-kw"><col class="c-rng"><col class="c-st"><col class="c-d"><col class="c-d"><col class="c-d"><col class="c-d"><col class="c-d"><col class="c-d"><col class="c-note"><col class="c-iss"></colgroup>`;
   UI.yHead = `<div class="hwrap"><div class="head"><div class="weeknav ynav"><span class="seg" role="group" aria-label="Darstellung"><button class="btn ${UI.yearDetail?"":"primary"}" data-ydet="0">Kompakt</button><button class="btn ${UI.yearDetail?"primary":""}" data-ydet="1">Details</button></span><button class="btn" data-ytoday="1" title="Zur aktuellen Woche springen und sie aufklappen">Heute</button><h2>Jahresüberblick ${qh(`<div class="qcols"><div>${yHelp}</div><div>${legendThemes()}</div></div>`)}</h2></div></div><div class="scroll yhs"><table class="year${UI.yearDetail?" detail":""}">${cg}<thead><tr><th></th><th>KW</th><th>Zeitraum</th><th class="nw">Status ${qh(`<b>Wochenstatus</b><ul><li>Klick auf den Status wechselt: belebt → ruhig → Pause.</li><li><b>belebt</b>: normales Programm.</li><li><b>ruhig</b>: so wenig Programm wie möglich, regulär nur Walk and Talk; andere Reihen nur, wenn sie es erlauben oder als Ausnahme.</li><li><b>Pause</b>: keine Termine.</li></ul>Die Prüfung und die Jahresplanung berücksichtigen den Status.`)}</th><th>Mo</th><th>Di</th><th>Mi</th><th>Do</th><th>Fr</th><th>Sa</th><th>Ferien / Feiertage</th><th>Prüfung ${qh("Fehler, Hinweise und Infos der Termine dieser Woche. Details im Reiter „Prüfung“ oder im Termin.")}</th></tr></thead></table></div></div>`;
@@ -659,6 +684,8 @@ function viewWoche(o){
     /* Zeitachse je Tag: Kernöffnungszeit (Einstellungen, Standard 10–21 Uhr), erweitert auf frühere/spätere Belegung (inkl. Aufbau und Check-in) */
     let lo = Math.floor(t2m(OPEN_FROM)/60)*60, hi = Math.ceil(t2m(OPEN_TO)/60)*60;
     for (const e of timed){ const sp = span(e); lo = Math.min(lo, sp.s - Math.max(setupOf(e), arrives(e) ? CI_MIN : 0)); hi = Math.max(hi, sp.e + (e.allDay ? 0 : afterOf(e))); }
+    /* Abreisetag der Übernachtungsgäste: Achse beginnt mind. 1 Std. vor der Abreise, damit sie sichtbar ist (Sebastian 02.11.2026) */
+    for (const q of staysOn(d)) if (q.s === 0 && q.e < 1440) lo = Math.min(lo, q.e - 60);
     const DAY0 = Math.max(0, Math.floor(lo/60)*60), DAYSPAN = Math.min(24*60, Math.ceil(hi/60)*60) - DAY0;
     const hours = []; for (let h = DAY0/60; h < (DAY0+DAYSPAN)/60; h++) hours.push(`<span style="left:${(h*60-DAY0)/DAYSPAN*100}%">${h}</span>`);
     const lanes = {}; LANES.forEach(l => lanes[l] = []);
@@ -693,6 +720,18 @@ function viewWoche(o){
       if (af > 0 && sp.e < DAY0 + DAYSPAN){ const tw = Math.min(af, DAY0 + DAYSPAN - sp.e) / DAYSPAN * 100, tlft = (sp.e - DAY0) / DAYSPAN * 100;
         const tail = `<div class="tail${ph ? half : ""}" style="left:${tlft}%;width:${tw}%;--c:${bg}" title="${esc("Nachlauf Gäste "+m2t(sp.e)+"–"+m2t(sp.e+af)+" · "+evName(e))}"></div>`;
         (ph ? splitRooms(ph.room).filter(r => LANES.includes(r)) : rs).forEach(r => lanes[r].push(tail)); }
+    }
+    /* Übernachtungsgäste (grau; vorgemerkt blass gestrichelt) und Messen (dezenter Hinweis) in der Spalte Dachgeschoss (v121) */
+    if (lanes[STAY_ROOM]){
+      const fm = fairsOn(d).map(f => (`<div class="fairm" title="${esc("Messe in Berlin: " + f.name + " (" + fairPer(f) + ") – Übernachtungsgäste wahrscheinlicher")}">Messe: ${esc(f.name)}</div>`));
+      staysOn(d).forEach(q => { const l = Math.max(0, (q.s - DAY0) / DAYSPAN * 100), r = Math.min(100, (q.e - DAY0) / DAYSPAN * 100); if (r <= l) return;
+        const cls = `stay${q.x.status === "gebucht" ? "" : " vm"}${stayClash(q.x).length ? " bad" : ""}${q.s === 0 && q.e < 1440 ? " dep" : ""}`, tip = esc(stayTip(q.x) + (stayClash(q.x).length ? " · überschneidet sich mit einer anderen Übernachtung" : ""));
+        const dep = q.s === 0 && q.e < 1440;
+        const nx = Math.min(DAY0 + DAYSPAN, ...staysOn(d).filter(o => o.s >= q.e).map(o => o.s)), mw = Math.max(0, (nx - q.e) / DAYSPAN * 100);
+        if (dep) lanes[STAY_ROOM].unshift(`<span class="stlab" style="left:${r}%;max-width:calc(${mw}% - 8px)" title="${tip}">Abreise ${m2t(q.e)} · ${esc(stayName(q.x))}</span>`);
+        const lab = dep ? BED : `${BED}${q.s > 0 ? "<small>ab " + m2t(q.s) + "</small>" : ""}${esc(stayName(q.x))}${+q.x.persons > 1 ? " (" + (+q.x.persons) + ")" : ""}${stayOutSat(q, d) ? `<span class="stout">${stayOutSat(q, d)}</span>` : ""}`;
+        lanes[STAY_ROOM].unshift(TEAM || PREV ? `<div class="${cls}" style="left:${l}%;width:${r - l}%" title="${tip}">${lab}</div>` : `<button class="${cls}" data-stay="${q.x.id}" style="left:${l}%;width:${r - l}%" title="${tip} – Klick: bearbeiten">${lab}</button>`); });
+      lanes[STAY_ROOM].unshift(...fm);
     }
     /* Alternativen des geöffneten Termins: grün = ohne Konflikt, gelb = nur mit Hinweis */
     if (ALTD){ const sl = altSlots(ALTD, ALTB, d), ok = sl.filter(x => !x.w), wn = sl.filter(x => x.w), dur = +ALTD.dur;
@@ -878,6 +917,46 @@ function viewRefStamm(seg, sender){
   ${rs.length ? `<div class="scroll"><table class="list"><thead><tr><th>Name</th><th>Reihen</th><th>Verfügbarkeit</th><th>Kontakt</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty">Noch keine Referenten angelegt.</div>`}`;
 }
 
+/* ---------- Übernachtungen im Dachgeschoss und Messen in Berlin (v121) ---------- */
+/* Termine, deren Belegung des Dachgeschosses die Übernachtung überschneidet */
+const stayHits = x => evList().filter(e => e.date >= x.from && e.date <= x.to && e.status !== "abgesagt" && e.kind !== "notiz")
+  .filter(e => occ(e).some(o => o[2] === STAY_ROOM && staysOn(e.date).some(q => q.x.id === x.id && ov(o[0], o[1], q.s, q.e))));
+const fairsIn = x => fairList().filter(f => f.from <= x.to && x.from <= (f.to || f.from));
+async function saveStays(msg){
+  const doc = {items:JSON.parse(JSON.stringify(S.stays || {})), fairs:JSON.parse(JSON.stringify(S.fairs || {})), set:localIso()};
+  render(); if (!db){ offTouch(); if (msg) toast(msg); return true; }
+  try { await db.doc("meta/stays").set(doc); if (msg) toast(msg); return true; } catch(e){ toast("Übernachtungen nicht gespeichert – bitte erneut versuchen"); return false; }
+}
+function viewStays(){
+  const t = todayStr(), all = stayList(), next = all.filter(x => x.to >= t), past = all.filter(x => x.to < t).reverse();
+  const ed = UI.stayEdit && S.stays[UI.stayEdit] ? S.stays[UI.stayEdit] : null, fe = UI.fairEdit && S.fairs[UI.fairEdit] ? S.fairs[UI.fairEdit] : null;
+  const row = x => { const cl = stayClash(x), hits = stayHits(x), fs = fairsIn(x);
+    const hint = [...cl.map(y => `<span class="lv err">überschneidet sich mit ${esc(stayName(y))} (${fmt(y.from)}–${fmt(y.to)})</span>`),
+      ...hits.map(e => `<span class="lv ${x.status === "gebucht" ? "err" : "warn"}" data-ev="${e.id}" style="cursor:pointer" title="Termin öffnen">${WD[wdOf(e.date)]} ${fmt(e.date)} ${esc(e.start || "")} ${esc(evName(e))} im DG</span>`),
+      ...fs.map(f => `<span class="lv info">Messe: ${esc(f.name)}</span>`)].join(" ");
+    return `<tr class="${UI.stayEdit === x.id ? "edt" : ""}"><td class="t">${WD[wdOf(x.from)]} ${fmtY(x.from)} <small>${esc(x.fromT || STAY_IN)}</small></td><td class="t">${WD[wdOf(x.to)]} ${fmtY(x.to)} <small>${esc(x.toT || STAY_OUT)}</small></td><td class="t">${stayNights(x)}</td><td>${BED}<b>${esc(stayName(x))}</b></td><td class="t">${Math.min(4, Math.max(1, +x.persons || 1))}</td><td><span class="stb${x.status === "gebucht" ? "" : " vm"}">${esc(x.status || "vorgemerkt")}</span></td><td>${hint}</td><td>${esc(x.note || "")}</td><td class="nowrap"><button class="btn ghost" data-stayed="${x.id}">Bearbeiten</button><button class="btn ghost" data-staydel="${x.id}">Entfernen</button></td></tr>`; };
+  const tab = l => `<div class="scroll"><table class="list stays"><thead><tr><th>Anreise</th><th>Abreise</th><th>Nächte</th><th>Name</th><th>Pers.</th><th>Status</th><th>Hinweise</th><th>Notiz</th><th></th></tr></thead><tbody>${l.map(row).join("")}</tbody></table></div>`;
+  const refs = Object.values(S.referents).map(r => r.name).filter(Boolean).sort((a,b) => a.localeCompare(b, "de"));
+  const v = ed || {fromT:STAY_IN, toT:STAY_OUT, status:"vorgemerkt", persons:1};
+  const frow = f => `<tr class="${UI.fairEdit === f.id ? "edt" : ""}"><td class="t">${WD[wdOf(f.from)]} ${fmtY(f.from)}${f.to && f.to !== f.from ? " – " + WD[wdOf(f.to)] + " " + fmtY(f.to) : ""}</td><td><b>${esc(f.name || "")}</b></td><td>${esc(f.note || "")}</td><td class="nowrap"><button class="btn ghost" data-faired="${f.id}">Bearbeiten</button><button class="btn ghost" data-fairdel="${f.id}">Entfernen</button></td></tr>`;
+  const fl = fairList(), fNext = fl.filter(f => (f.to || f.from) >= t), fPast = fl.filter(f => (f.to || f.from) < t).reverse();
+  const help = `<b>Übernachtungen</b> (Gästezimmer im Dachgeschoss, eine Einheit)<ul><li>Bezug standardmäßig ab ${STAY_IN} Uhr, Auszug bis ${STAY_OUT} Uhr; beides je Buchung änderbar. 1–4 Personen.</li><li>Status: <b>vorgemerkt</b> (blass, gestrichelt) oder <b>gebucht</b> (grau).</li><li>Erscheinen in der Wochen-/Tagesansicht in der Spalte „Dachgeschoss“ (Klick: bearbeiten), im Jahresüberblick als <span class="sti">${BED}</span> am Tag; überall mit Bett-Symbol und auf der Team-Seite (mit Namen). Nicht auf der öffentlichen Belegungsseite.</li><li>Prüfung: Liegt eine Veranstaltung oder Vermietung im Dachgeschoss (inkl. Aufbau, Check-in, Nachlauf) in einer Übernachtung, ist das bei „gebucht“ ein Fehler, bei „vorgemerkt“ ein Hinweis – am Termin, im Prüfbericht und hier unter „Hinweise“.</li><li>Zwei Übernachtungen zur selben Zeit: rot markiert (nur eine Einheit).</li><li><b>Messen in Berlin</b>: Zeiträume, in denen Übernachtungsgäste wahrscheinlicher sind (Hotelpreise). Dezent in der Spalte „Dachgeschoss“ und im Jahresüberblick in der Notizspalte; keine Prüfung.</li></ul>`;
+  const back = UI.stayBack ? `<button class="btn" type="button" data-staybk="1">← zurück zur ${UI.stayBack === "jahr" ? "Jahresübersicht" : "Woche"}</button>` : "";
+  return `<div class="head"><h2>Übernachtungen ${qh(help)}</h2>${back}</div>
+  ${ed ? `<section class="stayed"><h3>Übernachtung bearbeiten: ${BED}${esc(stayName(ed))} <span class="notes">${esc(stayPer(ed))}</span></h3>` : ""}<form class="filters stayf" id="stayForm"><input class="in" id="sName" list="stayNames" placeholder="Name" value="${esc(v.name || "")}" required aria-label="Name"><datalist id="stayNames">${refs.map(n => `<option value="${esc(n)}">`).join("")}</datalist>
+    <label class="cb">Personen <select class="in" id="sPers">${opt(["1","2","3","4"], String(Math.min(4, Math.max(1, +v.persons || 1))))}</select></label>
+    <label class="cb">Anreise <input class="in" type="date" id="sFrom" value="${esc(v.from || "")}" required> <input class="in" type="time" id="sFromT" value="${esc(v.fromT || STAY_IN)}" step="900" required></label>
+    <label class="cb">Abreise <input class="in" type="date" id="sTo" value="${esc(v.to || "")}" required> <input class="in" type="time" id="sToT" value="${esc(v.toT || STAY_OUT)}" step="900" required></label>
+    <select class="in" id="sStatus" aria-label="Status">${opt(STAY_ST, v.status || "vorgemerkt")}</select>
+    <input class="in" id="sNote" placeholder="Notiz (optional)" value="${esc(v.note || "")}">
+    <button class="btn primary" type="submit">${ed ? "Speichern" : "+ Übernachtung"}</button>${ed ? `<button class="btn" type="button" data-stayed="">Abbrechen</button>` : ""}</form>${ed ? "</section>" : ""}
+  ${next.length ? tab(next) : `<div class="empty">Keine kommenden Übernachtungen eingetragen.</div>`}
+  ${past.length ? `<details class="pastl"><summary>Vergangene Übernachtungen (${past.length})</summary>${tab(past)}</details>` : ""}
+  <h3 class="sh">Messen in Berlin</h3>
+  <form class="filters" id="fairForm"><input class="in" type="date" id="mFrom" value="${esc(fe ? fe.from : "")}" required aria-label="von"><input class="in" type="date" id="mTo" value="${esc(fe ? fe.to || "" : "")}" aria-label="bis (optional)"><input class="in" id="mName" placeholder="Name, z. B. ITB" value="${esc(fe ? fe.name || "" : "")}" required><input class="in" id="mNote" placeholder="Notiz (optional)" value="${esc(fe ? fe.note || "" : "")}"><button class="btn primary" type="submit">${fe ? "Speichern" : "+ Messe"}</button>${fe ? `<button class="btn" type="button" data-faired="">Abbrechen</button>` : ""}</form>
+  ${fNext.length ? `<div class="scroll"><table class="list"><thead><tr><th>Zeitraum</th><th>Messe</th><th>Notiz</th><th></th></tr></thead><tbody>${fNext.map(frow).join("")}</tbody></table></div>` : `<div class="empty">Keine kommenden Messen eingetragen.</div>`}
+  ${fPast.length ? `<details class="pastl"><summary>Vergangene Messen (${fPast.length})</summary><div class="scroll"><table class="list"><tbody>${fPast.map(frow).join("")}</tbody></table></div></details>` : ""}`;
+}
 /* ---------- Einstellungen: Abwesenheiten im Team ---------- */
 const absHit = a => evList().filter(e => e.kind==="va" && e.status !== "abgesagt" && a.from <= e.date && e.date <= (a.to||a.from));
 const absPer = a => `${fmtY(a.from)}${a.to&&a.to!==a.from?" – "+fmtY(a.to):""}`;
@@ -1481,7 +1560,7 @@ function availIssues(e, r, st, en, add){
 }
 
 /* ---------- Rendern ---------- */
-const VIEWS = {jahr:viewJahr, woche:viewWoche, liste:viewListe, pruefung:viewPruefung, reihen:viewReihen, referenten:viewReferenten, abwesend:viewAbwesend, anfragen:viewReferenten, sicherung:viewSicherung, kalender:viewKalender, zeiten:viewZeiten, kontakte:viewKontakte};
+const VIEWS = {jahr:viewJahr, woche:viewWoche, liste:viewListe, pruefung:viewPruefung, reihen:viewReihen, referenten:viewReferenten, uebernachtung:viewStays, abwesend:viewAbwesend, anfragen:viewReferenten, sicherung:viewSicherung, kalender:viewKalender, zeiten:viewZeiten, kontakte:viewKontakte};
 let rq = 0;
 function render(){
   { const tip = document.getElementById("qtip"); if (tip) tip.hidden = true; const zp = document.getElementById("zpop"); if (zp) zp.hidden = true; } cancelAnimationFrame(rq); rq = requestAnimationFrame(() => {
@@ -1519,6 +1598,7 @@ function setNav(){ return `<nav class="setnav" aria-label="Einstellungen"><span 
 function go(view){
   if (view === "einstellungen"){ let l = null; try { l = localStorage.getItem("shp-eset"); } catch(e){} view = isSetView(l) ? l : SET_VIEWS[0][0]; }
   if (isSetView(view)){ try { localStorage.setItem("shp-eset", view); } catch(e){} }
+  if (view !== "uebernachtung"){ UI.stayBack = null; UI.stayEdit = null; }
   UI.dayOnly = null; UI.view0 = null; if (view === "jahr") UI.yRestore = true; UI.view = view; try { localStorage.setItem("shp-view", view); } catch(e){} window.scrollTo(0,0); render(); }
 
 /* ---------- Schreiben ---------- */
@@ -1970,7 +2050,7 @@ const bkNorm = o => { const c = Object.assign({}, o); delete c.id; return JSON.s
 function backupObj(){
   const c = {}; BK_COLS.forEach(k => c[k] = JSON.parse(JSON.stringify(S[k] || {})));
   return {format:BK_FORMAT, version:1, created:localIso(), source: OFFLINE ? "offline" : "online", collections:c,
-    meta:{accepted:{items:JSON.parse(JSON.stringify(S.accepted || {}))}, weeks:{status:JSON.parse(JSON.stringify(S.weeks || {}))}, settings:JSON.parse(JSON.stringify(S.settings || {})), ...(S.websync ? {websync:JSON.parse(JSON.stringify(S.websync))} : {})}};
+    meta:{accepted:{items:JSON.parse(JSON.stringify(S.accepted || {}))}, weeks:{status:JSON.parse(JSON.stringify(S.weeks || {}))}, settings:JSON.parse(JSON.stringify(S.settings || {})), stays:{items:JSON.parse(JSON.stringify(S.stays || {})), fairs:JSON.parse(JSON.stringify(S.fairs || {}))}, ...(S.websync ? {websync:JSON.parse(JSON.stringify(S.websync))} : {})}};
 }
 const validBackup = b => !!(b && b.format === BK_FORMAT && b.collections && b.collections.events);
 function applyBackupLocal(b){
@@ -1978,6 +2058,7 @@ function applyBackupLocal(b){
   S.accepted = Object.assign({}, ((b.meta || {}).accepted || {}).items || {}); S.weeks = Object.assign({}, ((b.meta || {}).weeks || {}).status || {}); S.loaded = true;
   if ((b.meta || {}).websync){ S.websync = b.meta.websync; S.wsLoaded = true; }
   S.settings = Object.assign({}, (b.meta || {}).settings || {}); applySettings();
+  { const st = (b.meta || {}).stays || {}; S.stays = Object.assign({}, st.items || {}); S.fairs = Object.assign({}, st.fairs || {}); }
 }
 async function saveFile(name, text, mime){
   if (downloads){ try { const r = await downloads.save({filename:name, data:text}); return !!(r && r.status === "saved"); } catch(e){ if (e && e.code === "cancelled") return false; } }
@@ -2016,6 +2097,7 @@ function bkDiff(b){
   out.weeks = [...new Set(Object.keys(wk).concat(Object.keys(cw)))].filter(k => (wk[k] || "") !== (cw[k] || "")).length;
   out.acc = JSON.stringify(sortKeys(((b.meta || {}).accepted || {}).items || {})) !== JSON.stringify(sortKeys(S.accepted || {}));
   out.set = !!(b.meta || {}).settings && JSON.stringify(sortKeys(b.meta.settings)) !== JSON.stringify(sortKeys(S.settings || {})); /* ältere Backups ohne Einstellungen: nicht anfassen */
+  out.stays = !!(b.meta || {}).stays && JSON.stringify(sortKeys({i:b.meta.stays.items || {}, f:b.meta.stays.fairs || {}})) !== JSON.stringify(sortKeys({i:S.stays || {}, f:S.fairs || {}})); /* ältere Backups ohne Übernachtungen: nicht anfassen */
   return out;
 }
 const BK_F = [["date","Datum",v => v ? fmtY(v) : "–"],["start","Start",v => v || "–"],["dur","Dauer",v => v ? v + " Min" : "–"],["room","Raum",v => v || "–"],["status","Status",v => v || "–"],["title","Titel",v => v || "–"]];
@@ -2049,11 +2131,11 @@ function viewSicherung(){
     const sum = BK_COLS.reduce((a, k) => a + n(k).nu.length + n(k).ch.length, 0), gone = BK_COLS.reduce((a, k) => a + n(k).gone.length, 0);
     const ev = n("events"), lines = [...ev.nu.map(e => bkEvLine(e, "neu")), ...ev.ch.map(e => bkEvLine(e, "geändert")), ...ev.gone.map(e => bkEvLine(e, "nur online"))];
     html += `<section class="bkc bki"><h3>Einspielen: ${esc(imp.name)} <span class="notes">(Stand der Datei: ${esc(bkWhen(imp.b.created))}, ${imp.b.source === "offline" ? "aus der Offline-Version" : "aus dem Online-Tool"})</span></h3>
-      <table class="bkt"><thead><tr><th>Bereich</th><th>neu in der Datei</th><th>geändert</th><th>nur online (fehlt in der Datei)</th></tr></thead><tbody>${rows}<tr><td>Wochenstatus</td><td colspan="3">${d.weeks ? d.weeks + " Wochen abweichend" : "gleich"}</td></tr><tr><td>Akzeptierte Konflikte</td><td colspan="3">${d.acc ? "abweichend" : "gleich"}</td></tr><tr><td>Einstellungen</td><td colspan="3">${(imp.b.meta || {}).settings ? (d.set ? "abweichend" : "gleich") : "nicht in der Datei (bleiben unverändert)"}</td></tr></tbody></table>
+      <table class="bkt"><thead><tr><th>Bereich</th><th>neu in der Datei</th><th>geändert</th><th>nur online (fehlt in der Datei)</th></tr></thead><tbody>${rows}<tr><td>Wochenstatus</td><td colspan="3">${d.weeks ? d.weeks + " Wochen abweichend" : "gleich"}</td></tr><tr><td>Akzeptierte Konflikte</td><td colspan="3">${d.acc ? "abweichend" : "gleich"}</td></tr><tr><td>Einstellungen</td><td colspan="3">${(imp.b.meta || {}).settings ? (d.set ? "abweichend" : "gleich") : "nicht in der Datei (bleiben unverändert)"}</td></tr><tr><td>Übernachtungen und Messen</td><td colspan="3">${(imp.b.meta || {}).stays ? (d.stays ? "abweichend" : "gleich") : "nicht in der Datei (bleiben unverändert)"}</td></tr></tbody></table>
       ${lines.length ? `<details${lines.length <= 40 ? " open" : ""}><summary>Termine im Einzelnen (${lines.length})</summary><ul class="bkl">${lines.slice(0, 400).join("")}</ul></details>` : `<p class="notes">Keine Unterschiede bei den Terminen.</p>`}
-      <div class="bko"><label class="cb"><input type="checkbox" id="impNew" checked> Neue übernehmen</label><label class="cb"><input type="checkbox" id="impCh" checked> Geänderte übernehmen (Stand der Datei gewinnt)</label><label class="cb"><input type="checkbox" id="impDel"> Was in der Datei fehlt, online löschen (${gone})</label><label class="cb"><input type="checkbox" id="impMeta" checked${d.weeks || d.acc || d.set ? "" : " disabled"}> Wochenstatus, akzeptierte Konflikte und Einstellungen übernehmen</label></div>
+      <div class="bko"><label class="cb"><input type="checkbox" id="impNew" checked> Neue übernehmen</label><label class="cb"><input type="checkbox" id="impCh" checked> Geänderte übernehmen (Stand der Datei gewinnt)</label><label class="cb"><input type="checkbox" id="impDel"> Was in der Datei fehlt, online löschen (${gone})</label><label class="cb"><input type="checkbox" id="impMeta" checked${d.weeks || d.acc || d.set || d.stays ? "" : " disabled"}> Wochenstatus, akzeptierte Konflikte, Einstellungen, Übernachtungen und Messen übernehmen</label></div>
       <p class="notes">Achtung: Wurde ein Termin seit dem Backup online <i>und</i> in der Datei geändert, gewinnt beim Übernehmen die Datei. Vor dem Einspielen wird der aktuelle Online-Stand automatisch als Datei gesichert.</p>
-      <p><button class="btn primary" data-bk="apply"${sum || gone || d.weeks || d.acc || d.set ? "" : " disabled"}>Einspielen</button> <button class="btn" data-bk="cancel">Abbrechen</button></p></section>`; }
+      <p><button class="btn primary" data-bk="apply"${sum || gone || d.weeks || d.acc || d.set || d.stays ? "" : " disabled"}>Einspielen</button> <button class="btn" data-bk="cancel">Abbrechen</button></p></section>`; }
   return html;
 }
 async function bkApply(){
@@ -2067,7 +2149,8 @@ async function bkApply(){
     if (o.del) for (const x of c.gone){ await del(k, x.id); delete S[k][x.id]; ok++; } }
   if (o.meta){ const wk = ((imp.b.meta || {}).weeks || {}).status || {}, ac = ((imp.b.meta || {}).accepted || {}).items || {};
     try { await db.doc("meta/weeks").set({status:wk}); S.weeks = Object.assign({}, wk); await db.doc("meta/accepted").set({items:ac}); S.accepted = Object.assign({}, ac);
-      if ((imp.b.meta || {}).settings){ await db.doc("meta/settings").set(imp.b.meta.settings); S.settings = Object.assign({}, imp.b.meta.settings); applySettings(); } ok++; } catch(e){ fail++; } }
+      if ((imp.b.meta || {}).settings){ await db.doc("meta/settings").set(imp.b.meta.settings); S.settings = Object.assign({}, imp.b.meta.settings); applySettings(); }
+      if ((imp.b.meta || {}).stays){ const st = imp.b.meta.stays; await db.doc("meta/stays").set({items:st.items || {}, fairs:st.fairs || {}, set:localIso()}); S.stays = Object.assign({}, st.items || {}); S.fairs = Object.assign({}, st.fairs || {}); } ok++; } catch(e){ fail++; } }
   UI.imp = null; render(); toast(fail ? ok + " übernommen, " + fail + " fehlgeschlagen" : ok + " Änderungen eingespielt");
 }
 let TEAM_URL = "https://belegung.survivors-home.de/team/"; /* Einstellungen */
@@ -2101,7 +2184,7 @@ document.addEventListener("click", async ev => {
   { const a = ev.target.closest && ev.target.closest("[data-invite]");
     if (a){ const info = inviteInfo(draftEvent()); if (info.err){ ev.preventDefault(); toast(info.err); return; }
       a.href = info.url; if (info.miss.length) toast("Ohne E-Mail, bitte in Outlook ergänzen: " + info.miss.join(", ")); else if (!info.to.length) toast("Keine Referenten mit E-Mail – Teilnehmer in Outlook eintragen"); return; } }
-  const t = ev.target.closest("[data-sentyes],[data-sentno],[data-zone],[data-acc],[data-accg],[data-newround],[data-amode],[data-pfilt],[data-pmail],[data-pcopy],[data-psent],[data-pans],[data-pevs],[data-pparse],[data-papply],[data-psave],[data-rmail],[data-rcopy],[data-rsent],[data-rremind],[data-rans],[data-rhist],[data-aparse],[data-asave],[data-aapply],[data-delavail],[data-ydet],[data-sernav],[data-evnav],[data-openser],[data-back],[data-quick],[data-view],[data-wk],[data-goweek],[data-ev],[data-new],[data-wnav],[data-wtoday],[data-prback],[data-dayweek],[data-ytoday],[data-alt],[data-altgo],[data-altset],[data-altcopy],[data-bk],[data-ser],[data-newser],[data-ref],[data-newref],[data-close],[data-save],[data-del],[data-delok],[data-dup],[data-gen],[data-take],[data-csv],[data-delabs],[data-serf],[data-lpast],[data-ferdel],[data-ferdef],[data-fxdel],[data-setdef]");
+  const t = ev.target.closest("[data-sentyes],[data-sentno],[data-zone],[data-acc],[data-accg],[data-newround],[data-amode],[data-pfilt],[data-pmail],[data-pcopy],[data-psent],[data-pans],[data-pevs],[data-pparse],[data-papply],[data-psave],[data-rmail],[data-rcopy],[data-rsent],[data-rremind],[data-rans],[data-rhist],[data-aparse],[data-asave],[data-aapply],[data-delavail],[data-ydet],[data-sernav],[data-evnav],[data-openser],[data-back],[data-quick],[data-view],[data-wk],[data-goweek],[data-ev],[data-new],[data-wnav],[data-wtoday],[data-prback],[data-dayweek],[data-ytoday],[data-alt],[data-altgo],[data-altset],[data-altcopy],[data-bk],[data-ser],[data-newser],[data-ref],[data-newref],[data-close],[data-save],[data-del],[data-delok],[data-dup],[data-gen],[data-take],[data-csv],[data-delabs],[data-serf],[data-lpast],[data-ferdel],[data-ferdef],[data-fxdel],[data-setdef],[data-stay],[data-stayed],[data-staybk],[data-staydel],[data-faired],[data-fairdel]");
   const guard = () => { if (UI.drawer && UI.dirty && !UI.dirtyOk){ UI.dirtyOk = true; clearTimeout(UI.dirtyT); UI.dirtyT = setTimeout(() => UI.dirtyOk = false, 4000); toast("Ungespeicherte Änderungen – zum Verwerfen erneut klicken"); return true; } return false; };
   if (!t) {
     if (UI.drawer && !ev.target.closest("#drawer") && !ev.target.closest("input,select,textarea,label,button,a,summary,.qh,#qtip") && !guard()) closeDrawer();
@@ -2186,6 +2269,12 @@ document.addEventListener("click", async ev => {
   if (ds.gen) return genCands();
   if (ds.take) return takeCands();
   if (ds.csv) return exportCsv();
+  if ("stay" in ds){ UI.stayEdit = ds.stay; UI.stayBack = UI.view === "woche" ? "woche" : null; UI.stayY = window.scrollY; return go("uebernachtung"); }
+  if ("stayed" in ds){ UI.stayEdit = ds.stayed || null; if (!UI.stayEdit && UI.stayBack) return stayReturn(); render(); if (UI.stayEdit) window.scrollTo(0, 0); return; }
+  if (ds.staybk){ UI.stayEdit = null; return stayReturn(); }
+  if (ds.staydel){ delete S.stays[ds.staydel]; if (UI.stayEdit === ds.staydel) UI.stayEdit = null; return saveStays("Übernachtung entfernt"); }
+  if ("faired" in ds){ UI.fairEdit = ds.faired || null; return render(); }
+  if (ds.fairdel){ delete S.fairs[ds.fairdel]; if (UI.fairEdit === ds.fairdel) UI.fairEdit = null; return saveStays("Messe entfernt"); }
   if (ds.delabs){ await del("absences", ds.delabs); delete S.absences[ds.delabs]; return render(); }
   if (ds.ferdel){ const k = ds.ferdel; return saveSettings({ferien: FERIEN.filter(x => JSON.stringify(x) !== k)}, "Ferien entfernt"); }
   if (ds.ferdef) return saveSettings({ferien: null}, "Standardliste der Schulferien wird verwendet");
@@ -2210,6 +2299,7 @@ document.addEventListener("input", ev => {
   if (ev.target.id === "fQ"){ UI.q = ev.target.value; clearTimeout(UI.qt); UI.qt = setTimeout(() => { render(); requestAnimationFrame(() => { const q = $("#fQ"); if (q){ q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }); }, 250); }
 });
 document.addEventListener("change", async ev => {
+  if (ev.target.id === "sFrom" && ev.target.value){ const to = $("#sTo"); if (to && (!to.value || to.value <= ev.target.value)) to.value = S_(D(ev.target.value) + 1); return; }
   if (ev.target.id === "bkFile"){ const r = await bkReadFile(ev.target); if (r){ UI.imp = {b:r.b, name:r.name, diff:bkDiff(r.b)}; render(); } return; }
   if (ev.target.id === "bkLoad"){ const r = await bkReadFile(ev.target); if (!r) return; if (OFF.dirty && !confirm(OFF.dirty + " ungespeicherte Änderung(en) gehen verloren. Trotzdem laden?")) return;
     applyBackupLocal(r.b); OFF.src = r.name + " (Stand " + bkWhen(r.b.created) + ")"; OFF.dirty = 0; offStore(); offBanner(); UI.drawer = null; render(); toast("Backup geladen"); return; }
@@ -2233,6 +2323,8 @@ document.addEventListener("change", async ev => {
   if (id === "wkjump" && ev.target.value){ UI.week = ev.target.value; render(); }
   if (ev.target.dataset && ev.target.dataset.wksel) setWeek(ev.target.dataset.wksel, ev.target.value);
 });
+/* Übernachtung aus der Wochenansicht geöffnet: nach Speichern/Abbrechen zurück (v121) */
+function stayReturn(){ const v = UI.stayBack || "uebernachtung"; UI.stayBack = null; UI.stayEdit = null; go(v); if (v === "woche" && UI.stayY != null) UI.restoreY = UI.stayY; }
 document.addEventListener("submit", async ev => {
   ev.preventDefault();
   if (ev.target.id === "blkForm"){
@@ -2240,6 +2332,20 @@ document.addEventListener("submit", async ev => {
     if (!o.from) return; if (o.to < o.from) o.to = o.from;
     const id = newId("absences"); o.id = id;
     if (await put("absences", id, o)){ S.absences[id] = o; toast("Sperrtag eingetragen"); render(); }
+  }
+  if (ev.target.id === "stayForm"){
+    const o = {name:$("#sName").value.trim(), persons:+$("#sPers").value || 1, from:$("#sFrom").value, fromT:$("#sFromT").value || STAY_IN, to:$("#sTo").value, toT:$("#sToT").value || STAY_OUT, status:$("#sStatus").value, note:$("#sNote").value.trim()};
+    if (!o.name || !o.from || !o.to) return;
+    if (o.to + " " + o.toT <= o.from + " " + o.fromT){ toast("Abreise muss nach der Anreise liegen"); return; }
+    const id = UI.stayEdit && S.stays[UI.stayEdit] ? UI.stayEdit : "st" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); o.id = id;
+    S.stays[id] = o; UI.stayEdit = null; const cl = stayClash(o);
+    await saveStays(cl.length ? "Gespeichert – überschneidet sich mit " + cl.map(stayName).join(", ") : "Übernachtung gespeichert"); if (UI.stayBack) stayReturn(); return;
+  }
+  if (ev.target.id === "fairForm"){
+    const o = {from:$("#mFrom").value, to:$("#mTo").value || $("#mFrom").value, name:$("#mName").value.trim(), note:$("#mNote").value.trim()};
+    if (!o.from || !o.name) return; if (o.to < o.from) o.to = o.from;
+    const id = UI.fairEdit && S.fairs[UI.fairEdit] ? UI.fairEdit : "fa" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); o.id = id;
+    S.fairs[id] = o; UI.fairEdit = null; await saveStays("Messe gespeichert"); return;
   }
   if (ev.target.id === "absForm"){
     const o = {person:$("#aPerson").value.trim(), from:$("#aFrom").value, to:$("#aTo").value || $("#aFrom").value, note:$("#aNote").value.trim()};
@@ -2345,14 +2451,18 @@ function mobTags(d, noWk){
   const st = S.weeks[weekKey(d)] || "belebt", notes = evList().filter(e => e.date === d && e.kind === "notiz");
   return [FEIER[d] ? `<span class="lv err">${esc(FEIER[d])}</span>` : "", sperrOn(d) ? `<span class="lv err">Sperrtag: ${esc(sperrOn(d))}</span>` : "", ferienOn(d) ? `<span class="lv info">${esc(ferienOn(d))}</span>` : "",
     noWk ? "" : st === "ruhig" ? `<span class="lv mq">ruhige Woche</span>` : st === "pause" ? `<span class="lv mp">Programmpause</span>` : "",
-    ...notes.map(n => `<span class="lv info" data-ev="${n.id}">✎ ${esc(evName(n))}</span>`)].join("");
+    ...notes.map(n => `<span class="lv info" data-ev="${n.id}">✎ ${esc(evName(n))}</span>`)].join("") + stayTags(d);
 }
+/* Übernachtungsgäste (mit Namen, Sebastian 02.11.2026) und Messen als Schilder am Tag (v121) */
+const stayTags = d => staysOn(d).map(q => `<span class="lv sty${q.x.status === "gebucht" ? "" : " vm"}" title="${esc(stayTip(q.x))}">${BED}${q.s > 0 ? "ab " + m2t(q.s) + " " : q.e < 1440 ? "bis " + m2t(q.e) + " " : ""}${esc(stayName(q.x))}${+q.x.persons > 1 ? " (" + (+q.x.persons) + ")" : ""}</span>`).join("")
+  + fairsOn(d).map(f => `<span class="lv fair">Messe: ${esc(f.name)}</span>`).join("");
 /* Hochformat Tag: Räume als Spalten, Zeit senkrecht */
 function mobDayV(d){
   const L = evList().filter(e => e.date === d).sort(sortEv), timed = L.filter(e => e.kind !== "notiz" && span(e)), open = L.filter(e => e.kind !== "notiz" && !span(e));
   UMB = umbauMap(evList());
   let lo = Math.floor(t2m(OPEN_FROM)/60)*60, hi = Math.ceil(t2m(OPEN_TO)/60)*60;
   for (const e of timed){ const sp = span(e); lo = Math.min(lo, sp.s - Math.max(setupOf(e), arrives(e) ? CI_MIN : 0)); hi = Math.max(hi, sp.e + (e.allDay ? 0 : afterOf(e) + teardownOf(e))); }
+  for (const q of staysOn(d)) if (q.s === 0 && q.e < 1440) lo = Math.min(lo, q.e - 60); /* Abreise sichtbar (v121) */
   const T0 = Math.max(0, Math.floor(lo/60)*60), T1 = Math.min(24*60, Math.ceil(hi/60)*60), TS = T1 - T0;
   const Y = m => ((Math.min(Math.max(m, T0), T1) - T0) / TS * 100).toFixed(3) + "%", H = (a, b) => ((Math.min(b, T1) - Math.max(a, T0)) / TS * 100).toFixed(3) + "%";
   const LBL = {"Workshopraum":"Worksh.","Küche/Esszimmer":"Küche","Wohnzimmer":"Wohnz.","Innenhof":"Hof","DG (Notfall)":"DG","Raum offen":"offen","unterwegs":"unterw."};
@@ -2360,7 +2470,7 @@ function mobDayV(d){
     if ((e.room||"").split(" + ").includes("unterwegs") && !rs.includes("unterwegs")) rs.push("unterwegs"); if (e.room === "online") rs.push("online"); return rs; };
   const phRooms = e => { const ph = endPh(e); return ph ? splitRooms(ph.room).filter(r => LANES.includes(r)) : []; };
   /* sichtbare Spalten: EG-Räume immer, Hof und Sonderspalten nur bei Belegung */
-  const used = new Set(); timed.forEach(e => { roomsV(e).forEach(r => used.add(r)); phRooms(e).forEach(r => used.add(r)); });
+  const used = new Set(); timed.forEach(e => { roomsV(e).forEach(r => used.add(r)); phRooms(e).forEach(r => used.add(r)); }); const sts = staysOn(d); if (sts.length) used.add(STAY_ROOM);
   const lanes = LANES.filter(l => (EG.includes(l) && l !== "Innenhof") || used.has(l));
   const cols = lanes.map(() => []), ci = [];
   /* benachbarte Räume zu einem Block zusammenfassen: [[Startindex, Anzahl], …] */
@@ -2385,6 +2495,8 @@ function mobDayV(d){
     const lv = egLevel(e); if (lv >= 2 && e.room !== "Gesamtes EG" && rs.some(r => EG.includes(r))) EG.filter(r => !rs.includes(r)).forEach(r => { const k = lanes.indexOf(r); if (k >= 0) cols[k].push(`<div class="vexcl${lv === 2 ? " ex2" : ""}" style="top:${Y(sp.s)};height:${H(sp.s, sp.e)}" title="${esc(eglName(lv) + ": " + evName(e))}"></div>`); });
     if (arrives(e)){ const s = t2m(e.start); ci.push(`<i style="top:${Y(s - CI_MIN)};height:${H(s - CI_MIN, checkinOf(e) === "durchgehend" ? sp.e : s)}" class="${checkinOf(e) === "durchgehend" ? "run" : ""}" title="${esc("Check-in " + evName(e))}"></i>`); }
   }
+  { const k = lanes.indexOf(STAY_ROOM); if (k >= 0) sts.forEach(q => { if (q.e <= T0 || q.s >= T1) return;
+      cols[k].push(`<div class="stay vstay${q.x.status === "gebucht" ? "" : " vm"}" style="top:${Y(q.s)};height:${H(q.s, q.e)}" title="${esc(stayTip(q.x))}"><span class="vt">${BED}${q.s > 0 ? "ab " + m2t(q.s) : q.e < 1440 ? "bis " + m2t(q.e) : ""}</span><span class="vn">${esc(stayName(q.x))}</span>${stayOutSat(q, d) ? `<span class="vout">${stayOutSat(q, d)}</span>` : ""}</div>`); }); }
   const hours = []; for (let h = T0/60; h <= T1/60; h++) hours.push(`<span style="top:${Y(h*60)}">${h}</span>`);
   const lines = []; for (let h = T0/60 + 1; h < T1/60; h++) lines.push(`<i style="top:${Y(h*60)}"></i>`);
   const now = d === todayStr() ? (() => { const n = new Date(), m = n.getHours()*60 + n.getMinutes(); return m > T0 && m < T1 ? `<div class="vnow" style="top:${Y(m)}"></div>` : ""; })() : "";
@@ -2443,15 +2555,15 @@ function mobMonList(){
     h += `<div class="mskip${ws ? " wks" : ""}" data-d="${a1}" data-e="${b1}"${ws ? ` data-wk="${mobMon(a1)}"` : ""} style="--n:${run.length}"><span>${mobDLab(a1)}${a1 !== b1 ? " – " + mobDLab(b1) : ""} · ${pz ? "Programmpause" : "keine Termine"}</span>${sw ? `<em>${sw}</em>` : ""}</div>`; run = []; };
   for (let d = a; d <= z; d = S_(D(d) + 1)){
     if (wdOf(d) === 1) flush();
-    const evs = evList().filter(e => e.date === d && e.kind !== "notiz").sort(sortEv), notes = evList().filter(e => e.date === d && e.kind === "notiz"), hol = FEIER[d], sp = sperrOn(d);
-    if (!evs.length && !notes.length && !hol && !sp){ run.push(d); continue; }
+    const evs = evList().filter(e => e.date === d && e.kind !== "notiz").sort(sortEv), notes = evList().filter(e => e.date === d && e.kind === "notiz"), hol = FEIER[d], sp = sperrOn(d), sts = staysOn(d);
+    if (!evs.length && !notes.length && !hol && !sp && !sts.length){ run.push(d); continue; }
     flush();
     /* v110: Feiertag ohne Termine in einer Programmpause wie die übrigen Pausentage (halbe Höhe), Text klein */
     if (hol && !sp && !evs.length && !notes.length && (S.weeks[weekKey(d)] || "") === "pause"){ const wk1 = weekKey(d), ws1 = wk1 !== lastWk; lastWk = wk1; box(d);
       h += `<div class="mskip mhol${ws1 ? " wks" : ""}" data-d="${d}" data-e="${d}"${ws1 ? ` data-wk="${mobMon(d)}"` : ""} style="--n:1"><span>${mobDLab(d)} · ${esc(hol)}</span></div>`; continue; }
     const wk = weekKey(d), st = S.weeks[wk] || "belebt", [, w] = isoWeek(d), showKw = wk !== lastWk; lastWk = wk;
     const pre = d === t ? "Heute · " : d === tm ? "Morgen · " : "", fer = ferienOn(d);
-    const tags = [hol ? `<span class="lv err">${esc(hol)}</span>` : "", sp ? `<span class="lv err">Sperrtag</span>` : "", fer ? `<span class="lv info">${esc(fer)}</span>` : "", ...notes.map(n => `<span class="lv info" data-ev="${n.id}">✎ ${esc(evName(n))}</span>`)].join("");
+    const tags = [hol ? `<span class="lv err">${esc(hol)}</span>` : "", sp ? `<span class="lv err">Sperrtag</span>` : "", fer ? `<span class="lv info">${esc(fer)}</span>` : "", ...notes.map(n => `<span class="lv info" data-ev="${n.id}">✎ ${esc(evName(n))}</span>`)].join("") + stayTags(d);
     const rows = evs.map(e => { const sp2 = span(e), t2 = theme(e), bg = e.kind === "vermietung" ? "var(--muted)" : t2[0];
       return `<button class="mli ${stCls(e)}${errNoZone(e.id) ? " bad" : ""}" data-ev="${e.id}" style="--c:${bg}"><span class="mt"><b>${e.allDay ? "ganztägig" : e.start ? esc(e.start) : "offen"}</b>${!e.allDay && e.start && sp2 ? `<small>${mobDur(sp2.e - sp2.s)}</small>` : ""}</span><i class="md"></i><span class="mn">${esc(evName(e))}</span></button>`; }).join("");
     box(d); h += `<section class="mday${d === t ? " now" : ""}${hol || sp ? " hol" : ""}${showKw ? " wks" : ""}" data-d="${d}" data-e="${d}"${showKw ? ` data-wk="${mobMon(d)}"` : ""}><h3 data-mday="${d}" role="button" tabindex="0"><span class="mdl">${pre}${mobDLab(d)}</span>${tags ? `<span class="mtg">${tags}</span>` : ""}${showKw && stWord(st) ? `<span class="mkwl">${stWord(st)}</span>` : ""}</h3>${rows}</section>`;
@@ -2656,6 +2768,7 @@ document.addEventListener("click", ev => { const a = ev.target.closest("a.mnote"
     db.doc("meta/team").onSnapshot(snap => { const t = snap.exists ? (snap.data() || {}) : {}; S.teamPass = t.pass || ""; S.teamSet = t.set || ""; if (UI.view === "sicherung") render(); }, () => {});
     db.doc("meta/websync").onSnapshot(snap => { S.websync = snap.exists ? (snap.data() || {}) : null; S.wsLoaded = true; if (S.loaded) render(); }, () => {});
     db.doc("meta/settings").onSnapshot(snap => { S.settings = snap.exists ? Object.assign({}, snap.data() || {}) : {}; applySettings(); done("settings"); }, () => done("settings"));
+    db.doc("meta/stays").onSnapshot(snap => { const v = snap.exists ? (snap.data() || {}) : {}; S.stays = Object.assign({}, v.items || {}); S.fairs = Object.assign({}, v.fairs || {}); if (S.loaded) render(); }, () => {});
     db.doc("meta/weeks").onSnapshot(snap => { S.weeks = snap.exists ? Object.assign({}, (snap.data()||{}).status||{}) : {}; done("weeks"); }, () => {});
   });
 })();
