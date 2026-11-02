@@ -2836,7 +2836,7 @@ function cleanCard(s, today){
 const cleanKeep = x => cleanSame().some(n => n.toLowerCase() === cleanKey(x));
 const dShort = m => { const d = S_(Math.floor(m / 1440)); return (+d.slice(8, 10)) + "." + (+d.slice(5, 7)) + "."; };
 function cleanRail(a, b, first){
-  const LH = 28, span = Math.max(1, b - a), pc = m => Math.min(100, Math.max(0, (m - a) / span * 100)), segs = [], labs = [];
+  const LH = 31, span = Math.max(1, b - a), pc = m => Math.min(100, Math.max(0, (m - a) / span * 100)), segs = [], labs = [];
   stayList().forEach(x => { const [s, e] = stayAbs(x); if (e <= a || s >= b) return;
     const keep = cleanKeep(x), cls = (keep ? " keep" : "") + (x.status !== "gebucht" ? " vm" : ""), nm = keep ? esc(stayName(x)) : "Gast";
     segs.push(`<i class="cseg${cls}${s < a ? " ct" : ""}${e > b ? " cb" : ""}" style="top:${pc(s).toFixed(1)}%;bottom:${(100 - pc(e)).toFixed(1)}%"></i>`);
