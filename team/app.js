@@ -196,6 +196,17 @@ const normRooms = o => { for (const k of ["room","roomOff","backupRoom","endRoom
 /* Saison nur, wenn in der Reihe gesetzt; ohne Angabe gilt für den Innenhof 15.03.–15.10. */
 const seasonOf = e => { const s = serOf(e); if (!s.seasonFrom && !s.seasonTo && e.room !== "Innenhof") return null; return {from: s.seasonFrom || "03-15", to: s.seasonTo || "10-15", off: s.roomOff || ""}; };
 const inSeason = (date, se) => { if (!se) return true; const md = date.slice(5); return md >= se.from && md <= se.to; };
+/* Reihen: Anzahl je Jahr ist Vorgabe, das Intervall wird berechnet: (Wochen ohne Programmpause) ÷ Anzahl.
+   Ruhige Wochen und Schulferien zählen als normale Wochen. Saison-Reihen (draußen ohne Ausweichraum) zählen nur Wochen in der Saison. */
+const serSeasonOnly = s => !!(s && s.outdoor && (s.seasonFrom || s.seasonTo) && !s.roomOff);
+const serSeason = s => serSeasonOnly(s) ? {from: s.seasonFrom || "03-15", to: s.seasonTo || "10-15"} : null;
+function serWeeks(s, from, to){
+  const se = serSeason(s), out = []; let mo = D(mondayOf(...isoWeek(from)));
+  for (; S_(mo) <= to; mo += 7){ const m = S_(mo); if (S.weeks[weekKey(m)] === "pause") continue; if (se && ![0,1,2,3,4,5].some(i => inSeason(S_(mo+i), se))) continue; out.push(m); }
+  return out;
+}
+function serIv(s){ const n = +(s && s.count); if (!s || s.individual || !n) return null; const ws = serWeeks(s, mondayOf(YEAR, 1), mondayOf(YEAR, isoWeek(YEAR+"-12-28")[1])); return {weeks: ws.length, n, iv: ws.length / n, season: serSeason(s)}; }
+const ivNum = x => x.iv.toFixed(1).replace(".", ",");
 const backupOf = e => OUTROOMS.includes(e.room) ? (e.backupRoom != null && e.backupRoom !== "" ? e.backupRoom : (serOf(e).backupRoom || "")) : "";
 const md2de = v => v && /^\d\d-\d\d$/.test(v) ? v.slice(3)+"."+v.slice(0,2)+"." : "";
 const de2md = v => { const m = String(v||"").trim().match(/^(\d{1,2})\.(\d{1,2})\.?$/); return m ? String(m[2]).padStart(2,"0")+"-"+String(m[1]).padStart(2,"0") : ""; };
@@ -236,6 +247,13 @@ function computeIssues(list){
   const abs = Object.values(S.absences).filter(a => !a.block);
   const blk = {}; list.filter(e => e.kind === "notiz" && e.blockDay && e.status !== "abgesagt").forEach(e => blk[e.date] = evName(e));
   Object.values(S.absences).filter(a => a.block).forEach(a => { for (let d = a.from; d && d <= (a.to || a.from); d = S_(D(d)+1)) blk[d] = a.note || "keine Veranstaltung"; });
+  /* Lücke um eine Programmpause größer als nötig (Pausenwochen + 1,5 × Intervall) */
+  { const bySer = {}; act.filter(e => e.seriesId && e.kind !== "vermietung" && e.date.startsWith(YEAR + "-")).forEach(e => (bySer[e.seriesId] = bySer[e.seriesId] || []).push(e));
+    for (const [sid, evs] of Object.entries(bySer)){ const x = serIv(S.series[sid]); if (!x) continue;
+      evs.sort((a, b) => a.date.localeCompare(b.date));
+      for (let i = 1; i < evs.length; i++){ const a = D(mondayOf(...isoWeek(evs[i-1].date))), b = D(mondayOf(...isoWeek(evs[i].date))), gap = Math.round((b - a) / 7);
+        let p = 0; for (let m = a + 7; m < b; m += 7) if (S.weeks[weekKey(S_(m))] === "pause") p++;
+        if (p && gap > p + 1.5 * x.iv) add(evs[i], "warn", "Lücke um die Pause: " + gap + " Wochen seit dem letzten Termin der Reihe (nötig etwa " + Math.round(p + x.iv) + ")"); } } }
   for (const e of act){
     const w = wdOf(e.date), ser = S.series[e.seriesId] || {}, nm = serName(e), st = e.start ? t2m(e.start) : null;
     if (blk[e.date]) add(e,"err","Sperrtag: "+blk[e.date]);
@@ -786,6 +804,8 @@ function wsSection(){
 }
 
 /* ---------- Ansicht: Reihen ---------- */
+const ivCell = s => { const x = serIv(s); if (!x) return "–"; return "≈ " + ivNum(x) + " Wo." + (x.season ? ` <span class="hint" title="${esc("Saison-Reihe (draußen ohne Ausweichraum): Intervall nur über die Wochen " + md2de(x.season.from) + "–" + md2de(x.season.to) + " gerechnet")}">Saison</span>` : ""); };
+const ivText = s => { const x = serIv(s); if (!x) return s && s.individual ? "individuell – kein Intervall" : "Anzahl eintragen"; return "≈ alle " + ivNum(x) + " Wochen (" + x.weeks + " Wochen ohne Pausen ÷ " + x.n + ")" + (x.season ? " · Saison-Reihe: nur Wochen " + md2de(x.season.from) + "–" + md2de(x.season.to) + " gezählt" : ""); };
 const FLAB = {rhythmWeeks:"Rhythmus", count:"Anzahl", weekdays:"Wochentag", start:"Startzeit", endMin:"Abschluss-Dauer"};
 function serGaps(s){
   if (s.active === false) return {state:"paused", miss:[], prop:[]};
@@ -795,7 +815,7 @@ function serGaps(s){
   if (!s.room) miss.push("Raum");
   if (!s.dur) miss.push("Dauer");
   /* Individuelle Reihen (kein fester Rhythmus) werden nicht automatisch vorgeplant: Startzeit und Anzahl nicht Pflicht */
-  if (!s.individual){ if (!s.start) miss.push("Startzeit"); if (!(s.weekdays||[]).length) miss.push("Wochentag"); if (!s.rhythmWeeks) miss.push("Rhythmus"); if (!(s.refs||[]).length && !s.refsVary) miss.push("Referenten"); }
+  if (!s.individual){ if (!s.start) miss.push("Startzeit"); if (!(s.weekdays||[]).length) miss.push("Wochentag"); if (!(s.refs||[]).length && !s.refsVary) miss.push("Referenten"); }
   if (!s.individual && (s.count == null || s.count === "")) miss.push("Anzahl");
   const prop = (s.unconfirmed||[]).map(f => FLAB[f] || f);
   return {state: miss.length ? "miss" : prop.length ? "prop" : "ok", miss, prop};
@@ -829,12 +849,12 @@ function viewReihen(){
   const list = serListNow(all);
   const cnt = id => evList().filter(e => e.seriesId === id && e.date.startsWith(String(YEAR)) && e.status !== "abgesagt").length;
   const pv = (s,f) => (s.unconfirmed||[]).includes(f) ? ' <span class="lv warn">Vorschlag</span>' : "";
-  const rows = list.map(({s,g}) => `<tr class="click" data-ser="${s.id}"><td><b>${esc(s.name)}</b></td><td>${tbadge(s.theme)}</td><td>${gapChip(g)}</td><td>${esc(s.room||"–")}${serLevel(s) > 1 ? " · EG: " + esc(eglName(serLevel(s))) : ""}${s.hybrid?" · hybrid":""}</td><td class="t">${(s.weekdays||[]).map(x => WD[x]).join(", ")||"–"} ${esc(s.start||"")}</td><td class="t">${s.dur||"–"} Min</td><td>${s.individual?"individuell":s.rhythmWeeks?"alle "+s.rhythmWeeks+" Wo.":"–"}${pv(s,"rhythmWeeks")}</td><td class="t">${cnt(s.id)} / ${s.count==null?"–":s.count}${pv(s,"count")}</td><td>${esc((s.refs||[]).map(r => (S.referents[r]||{}).name).filter(Boolean).join(", ")||(s.individual||s.refsVary?"wechselnd":"–"))}</td><td>${esc({ja:"ja",ausnahme:"Ausnahme",nein:"nein"}[s.quiet||"nein"])}</td></tr>`).join("");
+  const rows = list.map(({s,g}) => `<tr class="click" data-ser="${s.id}"><td><b>${esc(s.name)}</b></td><td>${tbadge(s.theme)}</td><td>${gapChip(g)}</td><td>${esc(s.room||"–")}${serLevel(s) > 1 ? " · EG: " + esc(eglName(serLevel(s))) : ""}${s.hybrid?" · hybrid":""}</td><td class="t">${(s.weekdays||[]).map(x => WD[x]).join(", ")||"–"} ${esc(s.start||"")}</td><td class="t">${s.dur||"–"} Min</td><td>${s.individual?"individuell":ivCell(s)}</td><td class="t">${cnt(s.id)} / ${s.count==null?"–":s.count}${pv(s,"count")}</td><td>${esc((s.refs||[]).map(r => (S.referents[r]||{}).name).filter(Boolean).join(", ")||(s.individual||s.refsVary?"wechselnd":"–"))}</td><td>${esc({ja:"ja",ausnahme:"Ausnahme",nein:"nein"}[s.quiet||"nein"])}</td></tr>`).join("");
   const fb = (k,l) => `<button class="btn ${UI.serFilter===k?"primary":""}" data-serf="${k}">${l}</button>`;
   if (UI.serQuick) return quickTimes();
-  return `<div class="head"><h2>Reihen ${qh(`<b>Reihen</b><ul><li>Stammdaten je Reihe: Tage, Zeiten, Rhythmus, Raum, Ablauf, Regeln.</li><li>Neue Termine kopieren Raum, Dauer, Hybrid, Exklusiv, Referenten und Thema. Check-in, Aufbau, Nachlauf, Abbau, Ausweichraum, Abschluss und „draußen“ gelten direkt aus der Reihe, solange sie im Termin leer sind – im Termin lassen sie sich einzeln abweichend setzen.</li><li><b>Stammdaten-Status</b>: vollständig · Vorschlag prüfen (Rhythmus/Anzahl ${YEAR} aus den Terminen 2025/26 abgeleitet – öffnen, prüfen, speichern) · Daten fehlen · pausiert.</li><li>Klick auf eine Zeile öffnet den Dialog; darin mit ← → durch die Liste blättern oder „Speichern + nächste“.</li><li><b>Parallelbetrieb im EG</b> (Raum und Ablauf): 4 Stufen von „keine Einschränkung“ über „nur Einzelberatungen“ (Form „Beratung“) und „kein anderes Programm“ bis „absolute Ruhe“ (auch kein Auf-/Abbau, Check-in, Nachlauf anderer). Im Termin abweichend einstellbar.</li><li><b>Ungespeicherte Änderungen</b> im Dialog: geänderte Felder magenta umrahmt mit Balken links, betroffene Bereiche mit „● geändert“, unten die Anzahl. Verschwindet nach „Speichern“ oder wenn der alte Wert wieder eingetragen wird.</li><li>„Zeiten schnell erfassen“: Dauer, Aufbau, Nachlauf und Abbau aller Reihen in einer Tabelle.</li><li>„Terminvorschläge berechnen“ im Dialog legt Vorschläge als Option an.</li><li>Regeln und Notizen liest Claude bei der Jahresplanung; die automatische Prüfung wertet Freitext nicht aus.</li></ul>`)}</h2><div class="tools"><button class="btn" data-quick="1">Zeiten schnell erfassen</button><button class="btn primary" data-newser="1">+ Reihe</button></div></div>
+  return `<div class="head"><h2>Reihen ${qh(`<b>Reihen</b><ul><li>Stammdaten je Reihe: Tage, Zeiten, Anzahl je Jahr, Raum, Ablauf, Regeln.</li><li><b>Anzahl und Intervall</b>: Vorgabe ist die Anzahl ${YEAR} (Soll). Das Intervall wird daraus berechnet: Wochen des Jahres ohne Programmpausen ÷ Anzahl (ruhige Wochen und Schulferien zählen mit). „Saison“ = Reihe draußen ohne Ausweichraum, dort zählen nur die Wochen der Saison. Liegt zwischen zwei Terminen eine Pause und ist die Lücke größer als Pause + 1,5 × Intervall, meldet die Prüfung einen Hinweis.</li><li>Neue Termine kopieren Raum, Dauer, Hybrid, Exklusiv, Referenten und Thema. Check-in, Aufbau, Nachlauf, Abbau, Ausweichraum, Abschluss und „draußen“ gelten direkt aus der Reihe, solange sie im Termin leer sind – im Termin lassen sie sich einzeln abweichend setzen.</li><li><b>Stammdaten-Status</b>: vollständig · Vorschlag prüfen (Anzahl ${YEAR} aus den Terminen 2025/26 abgeleitet – öffnen, prüfen, speichern) · Daten fehlen · pausiert.</li><li>Klick auf eine Zeile öffnet den Dialog; darin mit ← → durch die Liste blättern oder „Speichern + nächste“.</li><li><b>Parallelbetrieb im EG</b> (Raum und Ablauf): 4 Stufen von „keine Einschränkung“ über „nur Einzelberatungen“ (Form „Beratung“) und „kein anderes Programm“ bis „absolute Ruhe“ (auch kein Auf-/Abbau, Check-in, Nachlauf anderer). Im Termin abweichend einstellbar.</li><li><b>Ungespeicherte Änderungen</b> im Dialog: geänderte Felder magenta umrahmt mit Balken links, betroffene Bereiche mit „● geändert“, unten die Anzahl. Verschwindet nach „Speichern“ oder wenn der alte Wert wieder eingetragen wird.</li><li>„Zeiten schnell erfassen“: Dauer, Aufbau, Nachlauf und Abbau aller Reihen in einer Tabelle.</li><li>„Terminvorschläge berechnen“ im Dialog legt Vorschläge als Option an.</li><li>Regeln und Notizen liest Claude bei der Jahresplanung; die automatische Prüfung wertet Freitext nicht aus.</li></ul>`)}</h2><div class="tools"><button class="btn" data-quick="1">Zeiten schnell erfassen</button><button class="btn primary" data-newser="1">+ Reihe</button></div></div>
   <div class="filters">${fb("alle","Alle ("+all.length+")")}${fb("miss","Daten fehlen ("+n("miss")+")")}${fb("prop","Vorschlag prüfen ("+n("prop")+")")}${fb("ok","Vollständig ("+n("ok")+")")}${fb("paused","Pausiert ("+n("paused")+")")}<span class="notes">Soll ${YEAR} aktive Reihen: ${all.filter(x => x.g.state!=="paused").reduce((a,x) => a + (+x.s.count||0), 0)} Termine</span></div>
-  ${list.length ? `<div class="scroll"><table class="list"><thead><tr><th>Reihe</th><th>Thema</th><th>Stammdaten</th><th>Raum</th><th>Tag / Start</th><th>Dauer</th><th>Rhythmus</th><th>Termine ${YEAR} / Soll</th><th>Referenten</th><th>Ruhige Woche</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty">Keine Reihen in dieser Auswahl.</div>`}`;
+  ${list.length ? `<div class="scroll"><table class="list"><thead><tr><th>Reihe</th><th>Thema</th><th>Stammdaten</th><th>Raum</th><th>Tag / Start</th><th>Dauer</th><th>Intervall</th><th>Termine ${YEAR} / Soll</th><th>Referenten</th><th>Ruhige Woche</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty">Keine Reihen in dieser Auswahl.</div>`}`;
 }
 
 function quickTimes(){
@@ -1169,11 +1189,12 @@ function personInfo(r){
   evs.forEach(e => by[evSt(e, r)].push(e));
   const outs = pOuts(r), lastOut = outs[outs.length-1] || null;
   const ins = pMsgs(r).filter(m => m.dir === "in" && m.kind === "term"), lastIn = ins[ins.length-1] || null;
-  const pendIn = lastIn && !lastIn.applied && (!lastOut || lastIn.at > lastOut.at);
+  const day = s => String(s || "").slice(0, 10);
+  const pendIn = lastIn && !lastIn.applied && (!lastOut || day(lastIn.at) >= day(lastOut.at));
   const lastAsk = [...outs].reverse().find(m => m.kind === "term" || m.kind === "remind");
   const since = [lastAsk && lastAsk.at, lastIn && lastIn.at].filter(Boolean).sort().pop();
   const days = since ? Math.floor((Date.now() - new Date(since).getTime()) / 864e5) : 0;
-  const partial = !!(lastIn && lastIn.applied && lastAsk && lastIn.at > lastAsk.at);
+  const partial = !!(lastIn && lastIn.applied && lastAsk && day(lastIn.at) >= day(lastAsk.at));
   const confSnap = lastOut && lastOut.kind === "conf" ? (lastOut.events||[]) : null;
   const confOk = confSnap && evs.filter(e => e.date >= todayStr()).every(e => confSnap.some(x => x.id === e.id && sameSlot(x, e)));
   let state;
@@ -1280,13 +1301,13 @@ function pansForm(rid){
     return `<div class="avr" style="flex-wrap:wrap"><span style="min-width:12em"><b>${esc(WD[wdOf(e.date)] + " " + fmtY(e.date))}</b> ${esc(e.start || "")}<br><span class="notes">${esc(evName(e))} · ${esc(P_LAB[evSt(e, r)])}</span></span>
       <span class="seg" role="group">${[["ja","passt"],["nein","passt nicht"],["offen","offen"]].map(([k, l]) => `<label class="btn sm" style="margin:0"><input type="radio" name="pa_${e.id}" value="${k}" ${a === k ? "checked" : ""}> ${l}</label>`).join("")}</span>
       <input class="in" data-pnote="${e.id}" placeholder="Notiz / Alternativvorschlag" value="${esc(nt)}" style="flex:1;min-width:12em"></div>`; };
-  const body = `<div class="notes">Antwort-Mail (oder Notiz zum Telefonat) hineinkopieren. „Mit Claude vorbelegen“ trägt passt / passt nicht / offen je Termin ein – bitte prüfen, dann übernehmen. „passt“ macht den Termin „zugesagt“ (bei mehreren Referenten, sobald alle zugesagt haben), „passt nicht“ erscheint in der Prüfung als Fehler zum Neuplanen.</div>
+  const body = `<div class="notes"><b>So geht’s:</b> <b>1.</b> Antwort-Mail (oder Notiz zum Telefonat) hineinkopieren. <b>2.</b> „Claude auswerten lassen“ setzt je Termin passt / passt nicht / offen vor – das ist nur ein Vorschlag, gespeichert wird noch nichts; prüfen oder selbst anklicken. <b>3.</b> „Auswertung übernehmen“ speichert Antwort <i>und</i> Auswahl: „passt“ macht den Termin „zugesagt“ (bei mehreren Referenten, sobald alle zugesagt haben), „passt nicht“ erscheint in der Prüfung zum Neuplanen. Erst dann ändert sich der Status.<br>Keine Zeit zum Auswerten? „Nur Text ablegen“ speichert die Mail im Verlauf, die Termine bleiben unverändert und die Person steht auf „Antwort auswerten“, bis sie übernommen ist.</div>
    <form class="form" id="fa"><label class="full">Antworttext<textarea id="aText" rows="7">${esc(UI.pText || (I.lastIn && !I.lastIn.applied ? I.lastIn.text : ""))}</textarea></label>
    <label>Eingang am<input type="date" id="aDate" value="${esc(todayStr())}"></label><label>Art<select id="aCh">${opt(["Mail","Telefon","persönlich"], "Mail")}</select></label></form>
-   <div class="ansbar"><button type="button" class="btn" data-pparse="1">Mit Claude vorbelegen</button></div>
+   <div class="ansbar"><button type="button" class="btn" data-pparse="1">Claude auswerten lassen</button><span class="notes" style="align-self:center">setzt die Auswahl unten vor – speichert noch nichts</span></div>
    ${UI.pSum ? `<div class="notes"><b>Claude:</b> ${esc(UI.pSum)}</div>` : ""}
    <div class="pres" style="padding:0">${es.length ? es.map(row).join("") : `<div class="notes">Keine offenen Termine.</div>`}</div>
-   <div class="ansbar"><button type="button" class="btn primary" data-papply="1">Übernehmen</button><button type="button" class="btn" data-psave="1">Nur Antwort speichern</button></div>`;
+   <div class="ansbar"><button type="button" class="btn primary" data-papply="1">Auswertung übernehmen</button><button type="button" class="btn" data-psave="1">Nur Text ablegen, später auswerten</button></div>`;
   return shell("Antwort von " + (r ? r.name : ""), body, `<button class="btn ghost" data-close="1">Schließen</button>`);
 }
 const P_PROMPT = (r, list, text) => `Du wertest die Antwort von ${r.name} auf Terminvorschläge für ${YEAR} aus. Heute: ${todayStr()}.
@@ -1324,7 +1345,7 @@ async function pApply(save){
   const li = personInfo(r).lastIn;
   if (li && !li.applied && li.text === mo.text){ const o = Object.assign({}, li, mo, {id:li.id, at:li.at, by:li.by || senderName()}); if (await put("msgs", li.id, o)) S.msgs = Object.assign({}, S.msgs, {[li.id]: o}); }
   else await logMsg(mo);
-  UI.pPre = null; UI.pSum = ""; UI.pText = ""; closeDrawer(); render(); toast(save ? "Antwort gespeichert" : "Antwort übernommen: " + nJa + " passt, " + nNo + " passt nicht");
+  UI.pPre = null; UI.pSum = ""; UI.pText = ""; closeDrawer(); render(); toast(save ? "Antworttext abgelegt – Status „Antwort auswerten“, bis die Auswertung übernommen ist" : "Auswertung übernommen: " + nJa + " passt, " + nNo + " passt nicht");
 }
 
 /* Reiter „Referenten“: Abstimmung (Standard) · Stammdaten · Verfügbarkeitsabfrage */
@@ -1333,7 +1354,7 @@ function viewReferenten(){
   const seg = `<span class="seg" role="group" aria-label="Ansicht"><button class="btn ${mode === "pers" ? "primary" : ""}" data-amode="pers">Terminabstimmung</button><button class="btn ${mode === "verf" ? "primary" : ""}" data-amode="verf">Vorabfrage Verfügbarkeit</button></span>`;
   const sender = `<label class="notes">Absender <select class="in" id="fSender"><option value="">– wählen –</option>${opt(["Kati","Sebastian"], UI.sender)}</select></label>`;
   if (mode === "verf") return viewRunden(seg);
-  const help = `<b>Referenten – Terminabstimmung</b><ul><li>Klick auf den Namen öffnet die Person in einem großen Dialog: Kontakt, Anrede, Einschränkungen, Verfügbarkeiten, Termine ${YEAR} mit Abstimmungsstand und Nachrichtenverlauf. „+ Referent“ legt eine neue Person an.</li><li>„Vorabfrage Verfügbarkeit“ zeigt die Runde vom Jahresbeginn (wann jemand nicht kann).</li><li>Der Zähler am Reiter zeigt, wie viele Personen gerade einen Schritt brauchen (neu anzuschreiben, nachfassen, Antwort auswerten).</li><li>Jede Person hat ihren eigenen Stand – er ergibt sich aus ihren Terminen ${YEAR} und dem Verlauf. Die Schaltfläche zeigt immer den nächsten Schritt.</li><li><b>neu anzuschreiben</b>: Termine, die noch nie abgefragt wurden oder seit der letzten Mail verschoben wurden. „Terminabfrage öffnen“ erzeugt die Mail mit genau diesen Terminen; nach einer ersten Antwort heißen sie „neue Vorschläge“ und die bereits zugesagten Termine stehen zur Bestätigung mit drin.</li><li>Nach dem Senden <b>„versendet“</b> klicken: die Mail kommt in den Verlauf, die Termine gehen von Idee/Option auf „angefragt“.</li><li><b>wartet</b> / <b>nachfassen</b> (nach ${NACHFASS_TAGE} Tagen): fertige Erinnerung mit den offenen Terminen.</li><li><b>Antwort einfügen</b>: Text hineinkopieren, „Mit Claude vorbelegen“ trägt je Termin passt / passt nicht / offen ein – prüfen, „Übernehmen“. passt → Termin „zugesagt“ (bei mehreren Referenten, wenn alle zugesagt haben). passt nicht → Fehler in der Prüfung „neu planen“, die Person steht auf „Neuplanung nötig“.</li><li>Nach einem Planungslauf: verschobene Termine gelten wieder als „neu“, die Person erscheint unter „neu anzuschreiben“.</li><li><b>Bestätigung senden</b>: wenn alle Termine einer Person zugesagt sind – Mail mit allen Terminen ${YEAR}. Ändert sich danach etwas, erscheint sie wieder.</li><li>Nur Termine mit Status Idee, Option oder angefragt werden abgefragt; zugesagte, fixe, veröffentlichte und als „fester Termin“ markierte gelten als zugesagt.</li></ul>`;
+  const help = `<b>Referenten – Terminabstimmung</b><ul><li>Klick auf den Namen öffnet die Person in einem großen Dialog: Kontakt, Anrede, Einschränkungen, Verfügbarkeiten, Termine ${YEAR} mit Abstimmungsstand und Nachrichtenverlauf. „+ Referent“ legt eine neue Person an.</li><li>„Vorabfrage Verfügbarkeit“ zeigt die Runde vom Jahresbeginn (wann jemand nicht kann).</li><li>Der Zähler am Reiter zeigt, wie viele Personen gerade einen Schritt brauchen (neu anzuschreiben, nachfassen, Antwort auswerten).</li><li>Jede Person hat ihren eigenen Stand – er ergibt sich aus ihren Terminen ${YEAR} und dem Verlauf. Die Schaltfläche zeigt immer den nächsten Schritt.</li><li><b>neu anzuschreiben</b>: Termine, die noch nie abgefragt wurden oder seit der letzten Mail verschoben wurden. „Terminabfrage öffnen“ erzeugt die Mail mit genau diesen Terminen; nach einer ersten Antwort heißen sie „neue Vorschläge“ und die bereits zugesagten Termine stehen zur Bestätigung mit drin.</li><li>Nach dem Senden <b>„versendet“</b> klicken: die Mail kommt in den Verlauf, die Termine gehen von Idee/Option auf „angefragt“.</li><li><b>wartet</b> / <b>nachfassen</b> (nach ${NACHFASS_TAGE} Tagen): fertige Erinnerung mit den offenen Terminen.</li><li><b>Antwort einfügen</b>: Text hineinkopieren, „Claude auswerten lassen“ setzt je Termin passt / passt nicht / offen vor (speichert noch nichts) – prüfen, dann „Auswertung übernehmen“. Erst damit ändert sich der Stand der Person. „Nur Text ablegen“ speichert die Mail ohne Auswertung; die Person steht dann auf „Antwort auswerten“. passt → Termin „zugesagt“ (bei mehreren Referenten, wenn alle zugesagt haben). passt nicht → Fehler in der Prüfung „neu planen“, die Person steht auf „Neuplanung nötig“.</li><li>Nach einem Planungslauf: verschobene Termine gelten wieder als „neu“, die Person erscheint unter „neu anzuschreiben“.</li><li><b>Bestätigung senden</b>: wenn alle Termine einer Person zugesagt sind – Mail mit allen Terminen ${YEAR}. Ändert sich danach etwas, erscheint sie wieder.</li><li>Nur Termine mit Status Idee, Option oder angefragt werden abgefragt; zugesagte, fixe, veröffentlichte und als „fester Termin“ markierte gelten als zugesagt.</li></ul>`;
   const head = `<div class="head"><h2>Referenten ${qh(help)}</h2><div class="tools">${seg}${sender}<button class="btn primary" data-newref="1">+ Referent</button></div></div>`;
   return viewPersonen(head);
 }
@@ -1751,10 +1772,10 @@ function serForm(s){
    <label>In ruhiger Woche<select name="quiet">${opt([["ja","erlaubt"],["ausnahme","nur Ausnahme"],["nein","nein"]], s.quiet||"nein")}</select></label>
    <label class="full">Saison <span class="hint">(Text, z. B. März–November)</span><input name="season" value="${esc(s.season||"")}"></label>
   </div></details>
-  <details class="sec full s-c" open><summary>Rhythmus und Anzahl</summary><div class="form">
-   <label>Rhythmus (alle … Wochen)<input type="number" name="rhythmWeeks" min="1" step="1" value="${esc(s.rhythmWeeks||"")}"></label>
+  <details class="sec full s-c" open><summary>Anzahl und Intervall</summary><div class="form">
    <label>Anzahl ${YEAR} (Soll)<input type="number" name="count" min="0" value="${esc(s.count==null?"":s.count)}"></label>
-   <label class="cb full"><input type="checkbox" name="individual" ${s.individual?"checked":""}> <span>Termine individuell (kein fester Rhythmus)<br><span class="hint">Termine werden einzeln gesetzt, nicht automatisch vorgeplant; Wochentag, Rhythmus, Referenten, Startzeit und Anzahl sind dann keine Pflichtangaben.</span></span></label>
+   <div class="lbl">Intervall <span class="hint">(berechnet, ruhige Wochen und Ferien zählen mit, Pausen nicht)</span><div class="notes" id="ivShow">${esc(ivText(s))}</div></div>
+   <label class="cb full"><input type="checkbox" name="individual" ${s.individual?"checked":""}> <span>Termine individuell (kein fester Rhythmus)<br><span class="hint">Termine werden einzeln gesetzt, nicht automatisch vorgeplant; Wochentag, Referenten, Startzeit und Anzahl sind dann keine Pflichtangaben, kein Intervall.</span></span></label>
   </div></details>
   <details class="sec full s-d" open><summary>Raum und Ablauf</summary><div class="form">
    <label class="full">Raum<select name="room"><option value="">offen</option>${opt(ROOMS, s.room)}</select></label>
@@ -1781,11 +1802,11 @@ function serForm(s){
   </div></details>
   </form>
   ${s.id ? `<details class="sec gen"><summary>Terminvorschläge berechnen</summary><div class="form">
-   <label>von<input type="date" id="gFrom" value="${YEAR}-03-01"></label><label>bis<input type="date" id="gTo" value="${YEAR}-06-20"></label>
-   <label>alle … Wochen<input type="number" id="gEvery" min="1" value="${esc(s.rhythmWeeks||4)}"></label>
+   <label>von<input type="date" id="gFrom" value="${YEAR}-01-01"></label><label>bis<input type="date" id="gTo" value="${YEAR}-12-31"></label>
+   <label>Anzahl <span class="hint">(Soll minus vorhandene ${YEAR})</span><input type="number" id="gN" min="1" value="${esc(Math.max(1, (+s.count||0) - evList().filter(e => e.seriesId === s.id && e.date.startsWith(String(YEAR)) && e.status !== "abgesagt").length) || 1)}"></label>
    <label>Wochentag<select id="gWd">${[1,2,3,4,5,6].map(d => `<option value="${d}" ${(s.weekdays||[])[0]===d?"selected":""}>${WD[d]}</option>`).join("")}</select></label>
    <label>Start<input type="time" id="gStart" step="900" value="${esc(s.start||"16:00")}"></label>
-   <label class="cb"><input type="checkbox" id="gQuiet" ${s.quiet==="ja"?"":"checked"}> ruhige Wochen und Pausen überspringen</label>
+   <label class="cb full"><input type="checkbox" id="gQuiet" checked> <span>gleichmäßig über die Wochen ohne Pause verteilen; fällt ein Termin auf eine nicht erlaubte Woche (ruhige Woche${s.quiet==="ja"?"":" ohne Freigabe"}, Schulferien bei „nicht in Ferien“, Feiertag), rückt er in die nächstgelegene erlaubte Woche</span></label>
    <div class="full"><button type="button" class="btn" data-gen="1">Vorschläge berechnen</button></div></div><div id="cands"></div></details>` : ""}`;
   const nx = s.id && UI.serOrder ? S.series[UI.serOrder[UI.serOrder.indexOf(s.id)+1]] : null;
   const foot = `<button class="btn primary" data-save="ser">Speichern</button>${nx?`<button class="btn" data-save="ser" data-then="${nx.id}" title="${esc("Speichern und weiter zu: "+nx.name)}">Speichern + nächste →</button>`:""}${s.id?delBtn():""}<button class="btn ghost" data-close="1">Abbrechen</button>`;
@@ -1862,7 +1883,7 @@ async function saveDrawer(kind, then){
       if (!u) delete o.web; else if (!cur || u !== (cur.url || "")) o.web = {url:u, src:"manuell"}; else o.web = cur; }
     if (await put("events", id, o)){ S.events[id] = o; closeDrawer(true); toast("Termin gespeichert"); render(); }
   } else if (kind === "ser"){
-    const id = dr.id || newId("series"); o = Object.assign({}, S.series[id] || {}, o, {id, unconfirmed: []}); if ("egLevel" in o){ o.egLevel = +o.egLevel || 1; o.excl = o.egLevel >= 3; o.exclStrict = o.egLevel === 4; } o.active = o.activeSel !== "pausiert"; delete o.activeSel; o.seasonFrom = de2md(o.seasonFrom); o.seasonTo = de2md(o.seasonTo);
+    const id = dr.id || newId("series"); o = Object.assign({}, S.series[id] || {}, o, {id, unconfirmed: []}); if ("egLevel" in o){ o.egLevel = +o.egLevel || 1; o.excl = o.egLevel >= 3; o.exclStrict = o.egLevel === 4; } o.active = o.activeSel !== "pausiert"; delete o.activeSel; o.seasonFrom = de2md(o.seasonFrom); o.seasonTo = de2md(o.seasonTo); delete o.rhythmWeeks;
     o.sebAuto = o.sebAuto === "1" && (o.refs||[]).includes(SEB_ID);
     if (await put("series", id, o)){ S.series[id] = o; toast("Reihe gespeichert"); if (then && S.series[then]) openDrawer("ser", then); else if (dr.back && S.events[dr.back.id]) openDrawer("ev", dr.back.id); else closeDrawer(); render(); }
   } else {
@@ -1911,18 +1932,21 @@ function applySeries(sid){
 let CANDS = [];
 function genCands(){
   const s = S.series[UI.drawer.id]; if (!s) return;
-  const from = $("#gFrom").value, to = $("#gTo").value, every = Math.max(1, +$("#gEvery").value||1), wd = +$("#gWd").value, start = $("#gStart").value, skip = $("#gQuiet").checked;
+  const from = $("#gFrom").value, to = $("#gTo").value, n = Math.max(1, +$("#gN").value||1), wd = +$("#gWd").value, start = $("#gStart").value, mv = $("#gQuiet").checked;
   if (!from || !to || from > to){ toast("Zeitraum prüfen"); return; }
-  const [y,w] = isoWeek(from); let mon = D(mondayOf(y,w)); const end = D(to); const out = [];
-  while (mon <= end){
-    const d = S_(mon + wd - 1);
-    if (d >= from && d <= to){
-      const ws = weekStatus(d);
-      if (skip && (ws === "pause" || (ws === "ruhig" && s.quiet !== "ja"))){ mon += 7; continue; }
-      out.push({id:"__c"+out.length, seriesId:s.id, title:s.name, date:d, start, dur:s.dur||90, room:s.room||"", theme:s.theme||"", hybrid:!!s.hybrid, excl:!!s.excl, refs:s.refs||[], sebAuto:!!(s.hybrid && s.sebAuto), status:"Option", kind:"va"});
-    }
-    mon += every*7;
+  /* nutzbare Wochen = ohne Programmpause (und bei Saison-Reihen nur in der Saison); Termine gleichmäßig darüber verteilt → Pausen unterbrechen so kurz wie möglich */
+  const U = serWeeks(s, from, to).filter(mo => { const d = S_(D(mo) + wd - 1); return d >= from && d <= to; });
+  if (!U.length){ toast("Keine Woche ohne Pause im Zeitraum"); return; }
+  if (n > U.length) toast("Nur " + U.length + " Wochen ohne Pause im Zeitraum");
+  const N = Math.min(n, U.length), day = i => S_(D(U[i]) + wd - 1);
+  const ok = i => { const d = day(i), ws = weekStatus(d); return !(ws === "ruhig" && s.quiet !== "ja") && !(s.noFerien && ferienOn(d)) && !FEIER[d]; };
+  const taken = new Set(), idx = [];
+  for (let k = 0; k < N; k++){
+    let i = Math.min(U.length - 1, Math.floor((k + 0.5) * U.length / N));
+    if (mv && !ok(i)){ for (let dd = 1; dd < U.length; dd++){ const c = [i - dd, i + dd].find(j => j >= 0 && j < U.length && !taken.has(j) && ok(j)); if (c != null){ i = c; break; } } }
+    if (taken.has(i)) continue; taken.add(i); idx.push(i);
   }
+  const out = idx.sort((a, b) => a - b).map((i, k) => ({id:"__c"+k, seriesId:s.id, title:s.name, date:day(i), start, dur:s.dur||90, room:s.room||"", theme:s.theme||"", hybrid:!!s.hybrid, excl:!!s.excl, refs:s.refs||[], sebAuto:!!(s.hybrid && s.sebAuto), status:"Option", kind:"va"}));
   const iss = computeIssues(evList().concat(out));
   CANDS = out.map(c => ({c, iss: iss.get(c.id)||[]}));
   $("#cands").innerHTML = CANDS.length ? CANDS.map((x,i) => { const bad = x.iss.some(z => z.l==="err" || z.t === OPEN_TXT); return `<div class="cand"><input type="checkbox" id="cand${i}" ${bad?"":"checked"} aria-label="Vorschlag übernehmen"><label for="cand${i}"><b class="t">${WD[wdOf(x.c.date)]} ${fmtY(x.c.date)} ${esc(start)}</b> <span class="notes">KW ${isoWeek(x.c.date)[1]} · ${esc(weekStatus(x.c.date))}</span><div class="iss">${x.iss.map(z => `<span class="lv ${z.l}">${esc(z.t)}</span>`).join(" ")}</div></label></div>`; }).join("") + `<div style="margin-top:10px"><button class="btn primary" data-take="1">Ausgewählte als Option anlegen</button></div>` : `<div class="empty">Keine passenden Termine im Zeitraum.</div>`;
@@ -2174,6 +2198,7 @@ document.addEventListener("input", ev => {
   if (dp){ const mi = dp.querySelector('input[type="number"]'), hm = dp.querySelector(".dhm");
     if (ev.target === mi){ hm.value = fmtHM(mi.value); hm.classList.remove("bad"); }
     else { const v = parseHM(hm.value); hm.classList.toggle("bad", v === null); if (v !== null){ mi.value = v; if (mi.closest("#drawer #f")) refreshLive(); } } }
+  if (ev.target.name === "count" && $("#ivShow") && UI.drawer && UI.drawer.kind === "ser"){ const f0 = ev.target.closest("#f"), b = Object.assign({}, S.series[UI.drawer.id] || {}, {count: ev.target.value, individual: !!(f0.elements.individual && f0.elements.individual.checked)}); $("#ivShow").textContent = ivText(b); }
   if (ev.target.closest("#drawer #f")){ const f0 = ev.target.closest("#f");
     if (ev.target.name === "hybrid"){ sebSync(f0, ev.target.checked); invToggle(f0); }
     { const nm0 = ev.target.name || (dp && dp.querySelector('input[type="number"]').name), iv = f0.elements.invSent;
