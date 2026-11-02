@@ -2827,10 +2827,10 @@ function cleanTaskLine(t, s, both){
   return `<li class="cl-dg">${tag("DG")}<b>Gastwechsel – reinigen</b><div class="cmeta">${out}${inn}</div></li>`;
 }
 function cleanCard(s, today){
-  const dg = s.dg.length, eg = s.eg.length, done = new Set(s.dg.flatMap(t => [t.prev && t.prev.id, t.stay.id]).filter(Boolean));
+  const dg = s.dg.length, eg = s.eg.length, done = new Set(s.dg.flatMap(t => [t.prev, t.stay]).filter(Boolean)); /* Objekt-Vergleich: auf der Reinigungsseite haben Übernachtungen keine Kennung (v130) */
   const badge = dg && eg ? `<span class="cbadge both">DG und EG</span>` : dg ? `<span class="cbadge dg">DG</span>` : eg ? `<span class="cbadge eg">EG</span>` : `<span class="cbadge free">nach Bedarf</span>`;
   /* Gast im Apartment während des Einsatzes – nur, wenn nicht schon in einer Aufgabe genannt */
-  const occL = cleanOcc(s).filter(q => !done.has(q.x.id)).map(q => { const leave = inSlot(q.ab[1], s), arrive = inSlot(q.ab[0], s);
+  const occL = cleanOcc(s).filter(q => !done.has(q.x)).map(q => { const leave = inSlot(q.ab[1], s), arrive = inSlot(q.ab[0], s);
     return `<li class="cl-occ">${leave ? `${IC_OUT} ${m2t(q.ab[1] % 1440)} Abreise – Apartment erst danach betreten` : arrive ? `${IC_IN} ${m2t(q.ab[0] % 1440)} Anreise – Apartment bis dahin fertig` : `${BED} Apartment belegt bis ${absTxt(q.ab[1])} – nicht betreten`}${vmTag(q.x)}</li>`; }).join("");
   const lines = s.dg.map(t => cleanTaskLine(t, s, dg && eg)).join("") + s.eg.map(t => cleanTaskLine(t, s, dg && eg)).join("") + occL;
   const mv = s.moved ? ` <span class="lv warn">verlegt: ${esc(WD[wdOf(s.orig)])} ${fmt(s.orig)} ist ${esc(s.moved)} – bitte absprechen</span>` : "";
