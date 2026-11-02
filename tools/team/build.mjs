@@ -43,16 +43,18 @@ function seal(pw, obj, file){
 if (pass){ seal(pass, backup, out); console.log(`${out}: Team-Seite ${Object.keys(events).length} Termine, Stand ${created}`); }
 else console.log("Team-Seite: kein Team-Passwort gesetzt – unverändert.");
 
-/* v125 Reinigungsseite (externe Reinigungskräfte, Sebastian 02.11.2026): nur Übernachtungen im DG ohne Namen und Notizen
-   (Namen durch Kürzel G1, G2 … ersetzt – nötig für „Gäste ohne Zwischenreinigung“), Messen nicht,
+/* v125 Reinigungsseite (externe Reinigungskräfte, Sebastian 02.11.2026): nur Übernachtungen im DG ohne Notizen;
+   Namen durch Kürzel G1, G2 … ersetzt – außer Gästen ohne Zwischenreinigung (meta/settings.cleanSame, z. B. Nadja), deren Name
+   in der Zeitleiste erscheint (v126, Sebastian 02.11.2026). Messen nicht,
    von den Terminen nur die mit „Küchenreinigung“ und nur Datum, Zeit, Raum, Status – keine Titel, Reihen, Referenten. */
 if (cleanPass){
   const items = ((meta.stays || {}).items) || {}, nm = x => String((x && x.name) || "").trim();
-  const names = [...new Set(Object.values(items).map(nm))].sort(), ps = Object.fromEntries(names.map((n, i) => [n, "G" + (i + 1)]));
+  const st = settings || {}, keep = new Set((Array.isArray(st.cleanSame) ? st.cleanSame : []).map(n => String(n || "").trim().toLowerCase()).filter(Boolean));
+  const names = [...new Set(Object.values(items).map(nm))].sort(), ps = Object.fromEntries(names.map((n, i) => [n, keep.has(n.toLowerCase()) ? n : "G" + (i + 1)]));
   const psL = Object.fromEntries(names.map(n => [n.toLowerCase(), ps[n]]));
   const cItems = {}; for (const [id, x] of Object.entries(items)){ const y = {}; ["from","fromT","to","toT","persons","status"].forEach(k => { if (x[k] != null) y[k] = x[k]; }); y.name = ps[nm(x)]; cItems["s" + (Object.keys(cItems).length + 1)] = y; }
   const cEv = {}; for (const e of Object.values(events)){ if (!e.kitchenClean || !e.date) continue; const y = {}; ["date","start","dur","allDay","room","status","kind","kitchenClean"].forEach(k => { if (e[k] != null) y[k] = e[k]; }); cEv["k" + (Object.keys(cEv).length + 1)] = y; }
-  const st = settings || {}, cSet = {};
+  const cSet = {};
   ["cleanSlots","feierExtra"].forEach(k => { if (st[k] != null) cSet[k] = st[k]; });
   if (Array.isArray(st.cleanSame)) cSet.cleanSame = st.cleanSame.map(n => psL[String(n || "").trim().toLowerCase()]).filter(Boolean);
   const clean = {format:"survivors-home-programmplaner-backup", version:1, created, source:"clean",
