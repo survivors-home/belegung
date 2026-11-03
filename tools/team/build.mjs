@@ -55,7 +55,7 @@ if (cleanPass){
   const cItems = {}; for (const [id, x] of Object.entries(items)){ const y = {}; ["from","fromT","to","toT","persons","status"].forEach(k => { if (x[k] != null) y[k] = x[k]; }); y.name = ps[nm(x)]; cItems["s" + (Object.keys(cItems).length + 1)] = y; }
   const cEv = {}; for (const e of Object.values(events)){ if (!e.kitchenClean || !e.date) continue; const y = {}; ["date","start","dur","allDay","room","status","kind","kitchenClean"].forEach(k => { if (e[k] != null) y[k] = e[k]; }); cEv["k" + (Object.keys(cEv).length + 1)] = y; }
   const cSet = {};
-  ["cleanSlots","feierExtra"].forEach(k => { if (st[k] != null) cSet[k] = st[k]; });
+  ["cleanSlots","cleanEx","feierExtra"].forEach(k => { if (st[k] != null) cSet[k] = st[k]; }); /* cleanEx: einzelne Termine verschoben/entfällt (v135) */
   if (Array.isArray(st.cleanSame)) cSet.cleanSame = st.cleanSame.map(n => psL[String(n || "").trim().toLowerCase()]).filter(Boolean);
   const clean = {format:"survivors-home-programmplaner-backup", version:1, created, source:"clean",
     collections:{events:cEv, series:{}, referents:{}, absences:{}, rounds:{}, msgs:{}}, meta:{settings:cSet, stays:{items:cItems, fairs:{}}}};
