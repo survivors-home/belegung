@@ -1580,6 +1580,7 @@ function render(){
   if (UI.view === "woche" && !UI.dayOnly && UI.week){ try { localStorage.setItem("shp-week", UI.week); } catch(e){} }
   const y = window.scrollY;
   $("#app").innerHTML = S.loaded ? (UI.mob ? viewMobil() : VIEWS[UI.view]()) : $("#app").innerHTML;
+  if (S.loaded && !UI.mob && UI.view === "reinigung") cleanLayout();
   { const wb = $("#wsslot"), h = S.loaded && !UI.mob ? wsBar() : ""; if (wb){ wb.hidden = !h; wb.innerHTML = h; } }
   { const hs = $("#hslot"), on = S.loaded && UI.view === "jahr" && !UI.mob; hs.hidden = !on; hs.innerHTML = on ? UI.yHead || "" : "";
     if (on){ const a = $("#app .ybody"), b = hs.querySelector(".yhs"); if (a && b){ b.scrollLeft = a.scrollLeft; a.onscroll = () => { b.scrollLeft = a.scrollLeft; }; } } }
@@ -2849,16 +2850,42 @@ function cleanRail(a, ae, b, first){
   const y = m => m <= a ? {f:0, px:0} : m < ae ? {f:0, px:D1} : m >= b ? {f:1, px:NX} : (f => ({f, px:D1 + f * (NX - D1)}))((m - ae) / Math.max(1, b - ae));
   const css = q => `calc(${(q.f * 100).toFixed(2)}% + ${q.px.toFixed(1)}px)`;
   stayList().forEach(x => { const [s, e] = stayAbs(x); if (e <= a || s >= b) return;
-    const keep = cleanKeep(x), cls = (keep ? " keep" : "") + (x.status !== "gebucht" ? " vm" : ""), nm = keep ? esc(stayName(x)) : "Gast";
+    const keep = cleanKeep(x), cls = (keep ? " keep" : "") + (x.status !== "gebucht" ? " vm" : ""), nm = keep ? esc(stayName(x)) : "Gast", g = segs.length;
     const ys = y(s), ye = y(e);
-    segs.push(`<i class="cseg${cls}${s < a ? " ct" : ""}${e >= b ? " cb" : ""}" style="top:${css(ys)};bottom:calc(${((1 - ye.f) * 100).toFixed(2)}% - ${ye.px.toFixed(1)}px)"></i>`);
-    if (s >= a) labs.push({q:ys, h:`<b>${nm}</b> ${persIc(stayN(x))}<br>${IC_IN} ${dShort(s)}`, cls});
-    else if (first) labs.push({q:{f:0, px:0}, h:`<b>${nm}</b> ${persIc(stayN(x))}<br>${IC_IN} seit ${dShort(s)}`, cls});
-    if (e < b) labs.push({q:ye, h:`${IC_OUT} ${dShort(e)}`, cls:cls + " out"}); });
-  labs.sort((u, v) => (u.q.f - v.q.f) || (u.q.px - v.q.px));
-  const lab = labs.map((l, i) => `<span class="clab${l.cls}" style="top:min(max(${labs.slice(0, i + 1).map((m, j) => `calc(${(m.q.f * 100).toFixed(2)}% + ${(m.q.px + (i - j) * LH).toFixed(1)}px)`).join(", ")}), calc(100% - ${(labs.length - i) * LH}px))">${l.h}</span>`).join("");
-  return {html:`<div class="crail"><i class="cdot"></i>${segs.join("")}${lab}</div>`, min:labs.length * LH + D1};
+    segs.push(`<i class="cseg${cls}${s < a ? " ct" : ""}${e >= b ? " cb" : ""}" data-tf="${ys.f.toFixed(4)}" data-tp="${ys.px.toFixed(1)}" data-bf="${ye.f.toFixed(4)}" data-bp="${ye.px.toFixed(1)}" style="top:${css(ys)};bottom:calc(${((1 - ye.f) * 100).toFixed(2)}% - ${ye.px.toFixed(1)}px)"></i>`);
+    if (s >= a) labs.push({q:ys, k:"in", g, h:`<b>${nm}</b> ${persIc(stayN(x))}<br>${IC_IN} ${dShort(s)}`, cls});
+    else if (first) labs.push({q:{f:0, px:0}, k:"seit", g, h:`<b>${nm}</b> ${persIc(stayN(x))}<br>${IC_IN} seit ${dShort(s)}`, cls});
+    if (e < b) labs.push({q:ye, k:"out", g, h:`${IC_OUT} ${dShort(e)}`, cls:cls + " out"}); });
+  /* Startwerte; die genaue Lage setzt cleanLayout() nach dem Zeichnen anhand der Balken */
+  const lab = labs.map(l => `<span class="clab${l.cls}" data-k="${l.k}" data-g="${l.g}" data-f="${l.q.f.toFixed(4)}" data-px="${l.q.px.toFixed(1)}" style="top:${css(l.q)}">${l.h}</span>`).join("");
+  return {html:`<div class="crail"><i class="cdot"></i>${segs.join("")}${lab}</div>`, min:labs.length ? 2 * D1 : 0};
 }
+/* Beschriftung der Zeitleiste (v134, Sebastian 03.11.2026): Anreise beginnt auf Höhe des Balkenanfangs, Abreise endet am Balkenende;
+   ist der Balken zu kurz (Beschriftungen würden sich überlagern), hängt die Abreise direkt unter Balkenende bzw. der vorigen Beschriftung.
+   Reicht die Zeile nicht, wird sie höher (dann verschieben sich die Balken → bis zu 4 Durchläufe). */
+function cleanLayout(){
+  const D1 = 27, NX = 12;
+  document.querySelectorAll(".ctl .ctrow").forEach(row => {
+    const rail = row.querySelector(".crail"); if (!rail) return;
+    const S = [...rail.querySelectorAll(".cseg")].map(s => ({s, tf:+s.dataset.tf, tp:+s.dataset.tp, bf:+s.dataset.bf, bp:+s.dataset.bp}));
+    const L = [...rail.querySelectorAll(".clab")].map(l => ({l, k:l.dataset.k, f:+l.dataset.f, px:+l.dataset.px, h:l.offsetHeight}));
+    /* Zeitskala nach dem Einsatz (D1 … H+12) bei Bedarf stauchen: g(y) = D1 + Len·t^p, Endpunkte bleiben fest → Balken laufen nahtlos weiter */
+    const g = (y, H, p) => { const len = H + NX - D1; if (y <= D1 || p === 1) return y; const t = Math.min(1, (y - D1) / len); return D1 + len * Math.pow(t, p); };
+    const lay = (H, p) => { const X = L.map(x => ({x, at:x.k === "seit" ? 0 : g(x.f * H + x.px, H, p)})).sort((u, v) => u.at - v.at || (u.x.k === "out") - (v.x.k === "out"));
+      let prev = -1e9; X.forEach(o => { const want = o.x.k === "out" ? o.at - o.x.h : o.at;
+        o.top = want >= prev + 2 ? want : o.x.k === "out" ? Math.max(prev + 2, o.at) : prev + 2; prev = o.top + o.x.h; });
+      return {X, end:prev}; };
+    let H = row.getBoundingClientRect().height, p = 1;
+    if (L.length && lay(H, 1).end > H - 2){
+      for (const q of [1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5, 6]) if (lay(H, q).end <= H - 2){ p = q; break; }
+      if (p === 1){ let n = H; while (n < H + 1200 && lay(n, 1).end > n - 2) n += 2; row.style.minHeight = n + "px"; H = row.getBoundingClientRect().height; }
+    }
+    S.forEach(o => { o.s.style.top = g(o.tf * H + o.tp, H, p).toFixed(1) + "px"; o.s.style.bottom = (H - g(o.bf * H + o.bp, H, p)).toFixed(1) + "px"; });
+    if (L.length) lay(H, p).X.forEach(o => { o.x.l.style.top = o.top.toFixed(1) + "px"; });
+  });
+}
+window.addEventListener("resize", () => { if (UI.view === "reinigung") cleanLayout(); });
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (UI.view === "reinigung") cleanLayout(); });
 function viewReinigung(){
   const today = todayStr(), wk = UI.cleanWeeks || 8, d1 = S_(D(today) + wk * 7), dp = S_(D(today) - 28);
   const plan = cleanPlan(dp, d1), next = plan.slots.filter(s => s.date >= today), past = plan.slots.filter(s => s.date < today).reverse();
