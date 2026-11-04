@@ -73,6 +73,17 @@ def pick(e, s, key):
         return v
     return s.get(key)
 
+def stand(folder, now):
+    """Stand der Daten: Zeitpunkt der Datenkopie (Datei STAND aus tools/snapshot.py, ab Planer v136), sonst jetzt."""
+    p = os.path.join(folder, "STAND")
+    if os.path.exists(p):
+        try:
+            with open(p, encoding="utf-8") as fh:
+                return datetime.datetime.fromisoformat(fh.read().strip()[:16]).strftime("%d.%m.%Y, %H:%M")
+        except ValueError:
+            pass
+    return now.strftime("%d.%m.%Y, %H:%M")
+
 def build(folder, out_path):
     tz = ZoneInfo("Europe/Berlin")
     now = datetime.datetime.now(tz)
@@ -150,7 +161,7 @@ def build(folder, out_path):
     last = max([x["d"] for x in ev] + [today])
     end = last[:4] + "-12-31"
     data = {
-        "upd": now.strftime("%d.%m.%Y, %H:%M"), "from": today, "to": end, "ev": ev,
+        "upd": stand(folder, now), "from": today, "to": end, "ev": ev,
         "closed": sorted(c for c in closed if today <= c <= end),
         "pause": sorted(k for k, v in weeks_doc.items() if v == "pause"),
         "quiet": sorted(k for k, v in weeks_doc.items() if v == "ruhig"),   # ruhige Wochen: extern „nicht verfügbar“

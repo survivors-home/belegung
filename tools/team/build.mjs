@@ -25,7 +25,10 @@ const DROP = ["email","phone","mobile","contact","salutation","notes","address",
 const referents = {}; for (const [id, r] of Object.entries(referentsRaw)) { const x = Object.assign({}, r); DROP.forEach(k => delete x[k]); referents[id] = x; }
 const now = new Date(), berlin = new Date(now.toLocaleString("en-US", {timeZone:"Europe/Berlin"}));
 const p2 = n => String(n).padStart(2, "0");
-const created = `${berlin.getFullYear()}-${p2(berlin.getMonth()+1)}-${p2(berlin.getDate())}T${p2(berlin.getHours())}:${p2(berlin.getMinutes())}:00`;
+const nowIso = `${berlin.getFullYear()}-${p2(berlin.getMonth()+1)}-${p2(berlin.getDate())}T${p2(berlin.getHours())}:${p2(berlin.getMinutes())}:00`;
+/* ab Planer v136: Stand = Zeitpunkt der Datenkopie (Datei STAND aus tools/snapshot.py), damit die Datenstand-Warnung ehrlich bleibt */
+const standFile = path.join(dir, "STAND"), standRaw = fs.existsSync(standFile) ? fs.readFileSync(standFile, "utf8").trim().slice(0, 16) : "";
+const created = /^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(standRaw) ? standRaw + ":00" : nowIso;
 const settings = meta.settings ? Object.fromEntries(Object.entries(meta.settings).filter(([k]) => k !== "id")) : null;
 const backup = {format:"survivors-home-programmplaner-backup", version:1, created, source:"team",
   collections:{events, series, referents, absences, rounds:{}, msgs:{}},
