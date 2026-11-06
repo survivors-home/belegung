@@ -1,0 +1,47 @@
+# Löscht leere claude/…-Branches (0 Commits vor main, kein offener Pull Request).
+# Hintergrund: Jeder Lauf der Routine „Belegungsplan aktualisieren“ legt einen claude/…-Branch an,
+# pusht den Commit direkt auf main und lässt den Branch leer zurück. Vorher von Hand gelöscht (etwa monatlich).
+# Läuft sonntags 4:23 Uhr (UTC 3:23) und von Hand: Actions → „Branches aufräumen“ → „Run workflow“.
+# main und alle anderen Branches bleiben unberührt. Quelle: survivors-home/planer, docs/status.md.
+name: Branches aufräumen
+
+on:
+  schedule:
+    - cron: "23 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: branches-aufraeumen
+  cancel-in-progress: false
+
+jobs:
+  aufraeumen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Leere claude/-Branches löschen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          open_prs=$(gh pr list -R "$REPO" --state open --limit 200 --json headRefName -q '.[].headRefName')
+          branches=$(gh api "repos/$REPO/branches?per_page=100" --paginate -q '.[].name' | grep '^claude/' || true)
+          deleted=0; kept=0
+          for b in $branches; do
+            if [ -n "$open_prs" ] && grep -qxF "$b" <<<"$open_prs"; then
+              echo "behalten (offener Pull Request): $b"; kept=$((kept+1)); continue
+            fi
+            ahead=$(gh api "repos/$REPO/compare/main...$b" -q '.ahead_by')
+            if [ "$ahead" = "0" ]; then
+              gh api -X DELETE "repos/$REPO/git/refs/heads/$b" >/dev/null
+              echo "gelöscht: $b"; deleted=$((deleted+1))
+            else
+              echo "behalten ($ahead Commits vor main): $b"; kept=$((kept+1))
+            fi
+          done
+          echo "Gelöscht: $deleted, behalten: $kept" | tee -a "$GITHUB_STEP_SUMMARY"
