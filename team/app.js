@@ -1068,6 +1068,28 @@ function zonePop(i, el){
   p.style.left = x + "px"; p.style.top = y + "px";
 }
 document.addEventListener("click", ev => { const p = $("#zpop"); if (!p || p.hidden) return; if (ev.target.closest("[data-zclose]") || (!ev.target.closest("#zpop") && !ev.target.closest("[data-zone]"))) p.hidden = true; }, true);
+/* v138: Spaltenkopf der Listen (Liste, Reihen, Referenten, Übernachtungen, Einstellungen) bleibt beim Scrollen unter der Kopfleiste sichtbar.
+   Die Tabellen liegen in waagerecht scrollbaren Rahmen (.scroll), dort wirkt position:sticky nicht – daher eine Kopie des Tabellenkopfs (#thfix). */
+function thFix(){
+  let fx = document.getElementById("thfix"); const hd = document.querySelector("header.top");
+  if (!fx){ fx = document.createElement("div"); fx.id = "thfix"; fx.hidden = true; fx.setAttribute("aria-hidden", "true"); document.body.appendChild(fx); }
+  /* Kopfleiste klebt nicht, wenn sie (z. B. bei geöffnetem breiten Dialog umgebrochen) mehr als 35 % der Fensterhöhe einnimmt; Jahresüberblick wie bisher */
+  if (hd) hd.classList.toggle("unstick", !UI.mob && UI.view !== "jahr" && hd.offsetHeight > innerHeight * .35);
+  const hb = hd ? Math.max(0, hd.getBoundingClientRect().bottom) : 0; document.documentElement.style.setProperty("--hdh", hb + "px");
+  const tb = UI.mob || !S.loaded ? null : [...document.querySelectorAll("#app table.list")].find(t => { if (!t.tHead || !t.offsetParent) return false; const r = t.getBoundingClientRect(); return r.top < hb && r.bottom > hb + t.tHead.offsetHeight * 2; });
+  if (!tb){ fx.hidden = true; return; }
+  const sc = tb.closest(".scroll") || tb.parentElement, sr = sc.getBoundingClientRect(), ths = [...tb.tHead.rows[0].cells], sig = tb.offsetWidth + ":" + ths.map(c => c.offsetWidth).join(",");
+  if (fx._t !== tb || fx._sig !== sig){ fx._t = tb; fx._sig = sig;
+    const cl = tb.cloneNode(false), th = tb.tHead.cloneNode(true); cl.removeAttribute("id"); cl.style.width = tb.offsetWidth + "px";
+    [...th.rows[0].cells].forEach((c, i) => { c.style.width = ths[i].getBoundingClientRect().width + "px"; });
+    cl.appendChild(th); fx.replaceChildren(cl); }
+  fx.style.top = hb + "px"; fx.style.left = (sr.left + sc.clientLeft) + "px"; fx.style.width = sc.clientWidth + "px";
+  fx.firstChild.style.transform = "translateX(" + (-sc.scrollLeft) + "px)"; fx.hidden = false;
+}
+(() => { let rq2 = 0; const upd = () => { cancelAnimationFrame(rq2); rq2 = requestAnimationFrame(thFix); };
+  window.addEventListener("scroll", upd, {passive:true}); window.addEventListener("resize", upd);
+  document.addEventListener("scroll", ev => { if (ev.target && ev.target.classList && ev.target.classList.contains("scroll")) upd(); }, {capture:true, passive:true});
+  try { new ResizeObserver(upd).observe(document.getElementById("app")); } catch(e){} })();
 /* ---------- Anfragen an Referenten (Runden, Nachrichtenverlauf, Auswertung) ---------- */
 const RTYPES = {verf:"Verfügbarkeit (Vorabfrage)", term:"Terminabfrage (Vorplanung)"};
 /* Terminabfrage: nur Termine, die zur Besprechung stehen (Status Idee, Option, angefragt; keine festen Termine) */
@@ -1590,6 +1612,7 @@ function render(){
   markSel();
   if (UI.altFlash){ const h = document.querySelector(`[data-wday="${UI.altFlash}"]`); UI.altFlash = null; if (h){ h.classList.remove("aflash"); void h.offsetWidth; h.classList.add("aflash"); } }
   if (UI.mob){ mobFit(); mobHeadH(); }
+  thFix();
   if (UI.drawer) refreshLive(true);
 }); }
 /* Markierung des geöffneten Termins im Kalender; bei Termin-Navigation in den sichtbaren Bereich holen */
@@ -1650,6 +1673,7 @@ function fd(form){
     else if (el.type === "number") o[el.name] = el.value === "" ? null : +el.value;
     else o[el.name] = el.value.trim();
   }
+  if (form.elements.kitchenClean && form.elements.kitchenClean.closest("[hidden]")) o.kitchenClean = false; /* v138: ohne Küche keine Küchenreinigung */
   return o;
 }
 function openDrawer(kind, id, preset, back){ UI.altFrom = null;
@@ -1711,6 +1735,7 @@ function hintsToHelp(root){
 }
 /* Möblierung nur wählbar, wenn der Workshopraum genutzt wird (Raum, Raum außerhalb der Saison oder Ausweichraum) */
 const wsrIn = r => !!r && (r === "Gesamtes EG" || String(r).split(" + ").includes("Workshopraum"));
+const kitIn = r => !!r && (r === "Gesamtes EG" || String(r).split(" + ").includes("Küche/Esszimmer"));
 function syncFurn(dr){
   const f = dr && dr.querySelector("#f"); if (!f) return;
   /* Online: Ablauf-Felder im Haus nicht relevant */
@@ -1725,6 +1750,10 @@ function syncFurn(dr){
   if (!online && f.elements.room){ const outdoor = OUTROOMS.includes(f.elements.room.value);
     ["backupRoom","roomOff","seasonFrom","seasonTo","season"].forEach(n => { const x = f.elements[n]; if (!x) return; x.disabled = !outdoor; const l = x.closest("label"); if (l) l.classList.toggle("off", !outdoor);
       x.title = outdoor ? "" : "Nur relevant, wenn als Raum ein Außenbereich (Innenhof oder unterwegs) gewählt ist"; }); }
+  /* v138: Küchenreinigung nur anbieten, wenn die Küche genutzt wird (Raum oder Abschluss in anderem Raum; beim Termin leer = aus Reihe) */
+  if (f.elements.kitchenClean){ const ser = S.series[f.elements.seriesId ? f.elements.seriesId.value : ""] || {};
+    const er = f.elements.endRoom ? f.elements.endRoom.value || (f.elements.seriesId ? ser.endRoom : "") : "";
+    const kon = !online && (kitIn(f.elements.room && f.elements.room.value) || kitIn(er)), kl = f.elements.kitchenClean.closest("label"); if (kl) kl.hidden = !kon; }
   if (online || !f.elements.furn) return;
   const el = n => f.elements[n] ? f.elements[n].value : "";
   const out = OUTROOMS.includes(el("room")), on = wsrIn(el("room")) || (out && (wsrIn(el("roomOff")) || wsrIn(el("backupRoom")))); /* Ausweich-/Winterraum zählt nur bei Raum draußen */
@@ -1819,7 +1848,7 @@ function evForm(e){
    <label class="full">Möblierung Workshopraum <span class="hint">${esc(ser.id ? "leer = aus Reihe: " + (ser.furn || "nicht festgelegt") : "nur bei Nutzung des Workshopraums")}</span><select name="furn"><option value="">${ser.id ? "aus Reihe" : "–"}</option>${opt(FURN, e.furn)}</select></label>
    <label class="cb"><input type="checkbox" name="hybrid" ${e.hybrid?"checked":""}> Hybrid / Live</label><input type="hidden" name="sebAuto" value="${e.sebAuto ? "1" : ""}">
    <div class="invbox full" data-invbox="1"${e.hybrid ? "" : " hidden"}><a class="btn" data-invite="1" href="#" target="_blank" rel="noopener">Termineinladung</a><label class="cb"><input type="checkbox" name="invSent" ${e.invSent && !e.__dup ? "checked" : ""}> Einladung verschickt</label>${qh(INV_HELP)}<span class="invhint" aria-live="polite"></span></div>
-   <label class="cb full"><input type="checkbox" name="kitchenClean" ${e.kitchenClean?"checked":""}> Küchenreinigung <span class="hint">Küche wird genutzt und muss danach gereinigt werden; für die spätere Einsatzplanung der Reinigungskräfte, wird derzeit nicht ausgewertet (bei neuem Termin aus der Reihe übernommen)</span></label>
+   <label class="cb full"><input type="checkbox" name="kitchenClean" ${e.kitchenClean?"checked":""}> Küchenreinigung <span class="hint">Küche wird genutzt und muss danach gereinigt werden; für die spätere Einsatzplanung der Reinigungskräfte, wird derzeit nicht ausgewertet (bei neuem Termin aus der Reihe übernommen). Nur sichtbar, wenn Raum oder Abschluss-Raum die Küche umfasst</span></label>
    <label class="full">Parallelbetrieb im EG <span class="hint">${esc((ser.id ? "leer = aus Reihe: Stufe " + serLevel(ser) + " · " : "") + EGL_HELP)}</span><select name="egLevel">${ser.id ? `<option value="">aus Reihe: ${esc(serLevel(ser) + " · " + eglName(serLevel(ser)))}</option>` : ""}${opt(EGL.map(x => [String(x[0]), x[0] + " · " + x[1]]), +e.egLevel ? String(e.egLevel) : (ser.id ? "" : String(e.excl ? 3 : 1)))}</select></label>
    <label>Draußen <span class="hint">${esc(ser.id ? "leer = aus Reihe: " + (ser.outdoor ? "ja" : "nein") : "")} – steuert die Prüfung auf Sonnenuntergang</span><select name="outdoor"><option value="">${ser.id ? "aus Reihe" : "–"}</option>${opt([["ja","findet (teilweise) draußen statt"],["nein","drinnen"]], e.outdoor === true ? "ja" : e.outdoor)}</select></label>
    <label>Check-in<select name="checkin"><option value="">${esc(ser.id ? "aus Reihe: " + ciLab[serCi] : "Standard (" + CI_MIN + " Min vor Beginn)")}</option>${opt([["vorher","30 Min vor Beginn"],["durchgehend","durchgehend: " + CI_MIN + " Min vorher und während der ganzen Veranstaltung"],["keiner","kein Check-in"]], e.checkin)}</select></label>
@@ -1874,7 +1903,7 @@ function serForm(s){
    <label class="cb"><input type="checkbox" name="hybrid" ${s.hybrid?"checked":""}> Hybrid / Live</label><input type="hidden" name="sebAuto" value="${s.sebAuto ? "1" : ""}">
    <label class="full">Parallelbetrieb im EG <span class="hint">${esc(EGL_HELP)}</span><select name="egLevel">${opt(EGL.map(x => [String(x[0]), x[0] + " · " + x[1]]), String(serLevel(s)))}</select></label>
    <label class="cb full"><input type="checkbox" name="outdoor" ${s.outdoor?"checked":""}> findet (teilweise) draußen statt</label>
-   <label class="cb full"><input type="checkbox" name="kitchenClean" ${s.kitchenClean?"checked":""}> Küchenreinigung <span class="hint">Küche wird genutzt und muss danach gereinigt werden; für die spätere Einsatzplanung der Reinigungskräfte, wird derzeit nicht ausgewertet; Vorgabe für neue Termine der Reihe</span></label>
+   <label class="cb full"><input type="checkbox" name="kitchenClean" ${s.kitchenClean?"checked":""}> Küchenreinigung <span class="hint">Küche wird genutzt und muss danach gereinigt werden; für die spätere Einsatzplanung der Reinigungskräfte, wird derzeit nicht ausgewertet; Vorgabe für neue Termine der Reihe. Nur sichtbar, wenn Raum oder Abschluss-Raum die Küche umfasst</span></label>
    <label class="full">Check-in<select name="checkin">${opt([["vorher",CI_MIN + " Min vor Beginn"],["durchgehend","durchgehend: " + CI_MIN + " Min vorher und während der ganzen Veranstaltung"],["keiner","kein Check-in"]], s.checkin || (s.form==="Beratung" ? "durchgehend" : "vorher"))}</select></label>
    <label>Aufbau vor Beginn <span class="hint">(leer = 5:00 h bei Hybrid)</span>${durPair(`name="setup" step="15"`, s.setup, "Aufbau")}</label>
    <label>Nachlauf Gäste <span class="hint">(nach offiziellem Ende)</span>${durPair(`name="after" step="5"`, s.after, "Nachlauf")}</label>
@@ -2121,7 +2150,7 @@ function bkEvLine(e, tag){
   return `<li><span class="lv ${tag === "nur online" ? "warn" : "info"}">${tag}</span> ${e.date ? fmtY(e.date) : ""} ${esc(e.start || "")} <b>${esc(evName(e))}</b>${det}</li>`;
 }
 function viewSicherung(){
-  const help = `<b>Sicherung</b><ul>${OFFLINE ? `<li>Dies ist die <b>Offline-Version</b>: Sie läuft ohne Claude im Browser und prüft mit denselben Regeln wie das Online-Tool. Es gibt keine gemeinsame Datenbank – jede Kopie ist für sich.</li><li><b>Backup-Datei laden</b>: eine JSON-Sicherung öffnen (ersetzt den Stand in dieser Version).</li><li><b>Als Backup-Datei speichern</b>: aktuellen Stand als JSON sichern. Zusätzlich wird nach jeder Änderung ein Zwischenstand im Browser gehalten.</li><li>Zurück ins Online-Tool: dort unter „Einstellungen“ → „Sicherung“ → „Backup einspielen“.</li><li>Nicht verfügbar: Auswertung von Antwortmails durch Claude.</li>` : `<li><b>Backup herunterladen</b>: vollständiger Stand als JSON-Datei (alle Termine, Reihen, Referenten, Nachrichten, Abwesenheiten, Wochenstatus, akzeptierte Konflikte).</li><li><b>Offline-Version herunterladen</b>: der Planer als eine HTML-Datei mit dem aktuellen Stand – öffnet per Doppelklick im Browser, ohne Claude. Bitte nach größeren Änderungen am Tool neu herunterladen.</li><li><b>Backup einspielen</b>: zeigt die Unterschiede zwischen Datei und aktuellem Stand; nach Bestätigung werden sie übernommen. Vorher wird automatisch der aktuelle Stand als Datei gesichert.</li>`}</ul>`;
+  const help = `<b>Sicherung</b><ul>${OFFLINE ? `<li>Dies ist die <b>Offline-Version</b>: Sie läuft ohne Claude im Browser und prüft mit denselben Regeln wie das Online-Tool. Es gibt keine gemeinsame Datenbank – jede Kopie ist für sich.</li><li><b>Backup-Datei laden</b>: eine JSON-Sicherung öffnen (ersetzt den Stand in dieser Version).</li><li><b>Als Backup-Datei speichern</b>: aktuellen Stand als JSON sichern. Zusätzlich wird nach jeder Änderung ein Zwischenstand im Browser gehalten.</li><li>Zurück ins Online-Tool: dort unter „Einstellungen“ → „Sicherung“ → „Backup einspielen“.</li><li>Nicht verfügbar: Auswertung von Antwortmails durch Claude.</li>` : `<li><b>Backup herunterladen</b>: vollständiger Stand als JSON-Datei (alle Termine, Reihen, Referenten, Nachrichten, Abwesenheiten, Wochenstatus, akzeptierte Konflikte).</li><li><b>Offline-Version herunterladen</b>: der Planer als eine HTML-Datei mit dem aktuellen Stand – öffnet per Doppelklick im Browser, ohne Claude. Bitte nach größeren Änderungen am Tool neu herunterladen.</li><li><b>Backup einspielen</b>: zeigt die Unterschiede zwischen Datei und aktuellem Stand; nach Bestätigung werden sie übernommen. Vorher wird automatisch der aktuelle Stand als Datei gesichert.</li><li><b>Datenkopie für die Website</b>: Website, Team-Seite und Reinigungsseite entstehen aus einer Kopie der Daten, die der geöffnete Planer eines Bearbeiters automatisch ablegt. Ist kein Bearbeiter im Planer, bleiben die Seiten auf dem Stand der letzten Kopie (die Team-Seite warnt dann).</li>`}</ul>`;
   const card = (t, inner) => `<section class="bkc"><h3>${t}</h3>${inner}</section>`;
   let html = `${setNav()}<div class="head"><h2>Sicherung ${qh(help)}</h2></div><div class="bkg">`;
   if (OFFLINE){
@@ -2132,10 +2161,11 @@ function viewSicherung(){
     html += card("Backup herunterladen", `<p>Vollständiger Stand als JSON-Datei – zum Aufbewahren (z. B. OneDrive) und zum Wiederherstellen.</p><p><button class="btn primary" data-bk="json">Backup herunterladen</button></p>`)
       + card("Offline-Version herunterladen", `<p>Der Planer als eine HTML-Datei mit dem aktuellen Stand. Öffnet per Doppelklick im Browser, ohne Claude: Wochenansicht, Bearbeiten, Prüfregeln und Alternativen funktionieren; es fehlen nur die gemeinsame Datenbank und die Auswertung von Antwortmails.</p><p><button class="btn primary" data-bk="html">Offline-Version herunterladen</button></p>`)
       + card("Backup einspielen", `<p>Eine JSON-Sicherung (z. B. aus der Offline-Version) zurück in die gemeinsame Datenbank übernehmen. Zuerst werden die Unterschiede angezeigt.</p><input type="file" id="bkFile" accept=".json,application/json">`)
-      + card("Team-Seite fürs Handy", `<p>Mobile Monatsansicht als eigene Web-App: <a href="${TEAM_URL}" target="_blank" rel="noopener">${TEAM_URL.replace("https://","")}</a>. Die Daten liegen dort nur verschlüsselt; geöffnet wird mit dem Team-Passwort. Aktualisierung automatisch (werktags 9–19 Uhr alle 2 Std., täglich ca. 5 Uhr).</p>
+      + card("Team-Seite fürs Handy", `<p>Mobile Monatsansicht als eigene Web-App: <a href="${TEAM_URL}" target="_blank" rel="noopener">${TEAM_URL.replace("https://","")}</a>. Die Daten liegen dort nur verschlüsselt; geöffnet wird mit dem Team-Passwort. Aktualisierung automatisch (werktags 9–19 Uhr alle 2 Std., täglich ca. 5 Uhr) aus der Datenkopie (siehe unten).</p>
         <p>${S.teamPass ? `<span class="lv info">Passwort gesetzt${S.teamSet ? " am " + esc(bkWhen(S.teamSet)) : ""}</span> <details style="display:inline-block"><summary class="notes">anzeigen</summary><code>${esc(S.teamPass)}</code></details>` : `<span class="lv warn">noch kein Passwort – Team-Seite wird nicht erzeugt</span>`}</p>
         <p><input class="in" type="text" id="teamPw" autocomplete="off" placeholder="neues Passwort (mind. 12 Zeichen)" style="width:100%"></p><p><button class="btn primary" data-bk="teampw">Passwort speichern</button></p>
-        <p class="notes">Lang und nicht erratbar wählen (z. B. vier zufällige Wörter). Nach einer Änderung gilt das neue Passwort ab der nächsten Aktualisierung; alle müssen es dann neu eingeben. Lesbar für alle mit Zugriff auf diesen Planer.</p>`);
+        <p class="notes">Lang und nicht erratbar wählen (z. B. vier zufällige Wörter). Nach einer Änderung gilt das neue Passwort ab der nächsten Aktualisierung; alle müssen es dann neu eingeben. Lesbar für alle mit Zugriff auf diesen Planer.</p>`)
+      + card("Datenkopie für die Website", snapCard());
   }
   html += `</div>`;
   const imp = UI.imp;
@@ -2192,7 +2222,11 @@ async function exportCsv(){
 }
 
 /* ---------- Ereignisse ---------- */
+/* v138: Wo begann der Klick? Text im Dialog markieren und außerhalb loslassen darf den Dialog nicht schließen */
+let DOWN_DR = false;
+document.addEventListener("pointerdown", ev => { DOWN_DR = !!(ev.target.closest && ev.target.closest("#drawer")); }, true);
 document.addEventListener("click", async ev => {
+  { const fromDr = DOWN_DR; DOWN_DR = false; if (fromDr && ev.detail && UI.drawer && !(ev.target.closest && ev.target.closest("#drawer"))) return; }
   if (ev.target.closest && ev.target.closest("a.clink")) return;
   { const a = ev.target.closest && ev.target.closest("[data-invite]");
     if (a){ const info = inviteInfo(draftEvent()); if (info.err){ ev.preventDefault(); toast(info.err); return; }
@@ -2325,7 +2359,7 @@ document.addEventListener("change", async ev => {
   if (qe){ const s = S.series[qe.dataset.qs]; if (!s) return; const v = qe.value === "" ? null : Math.max(0, +qe.value);
     const o = Object.assign({}, s, {[qe.dataset.qf]: v}); if (qe.dataset.qf === "after" && (o.unconfirmed||[]).includes("after")) o.unconfirmed = o.unconfirmed.filter(x => x !== "after");
     if (await put("series", s.id, o)){ S.series[s.id] = o; recompute(); toast("Gespeichert: "+s.name); render(); } return; }
-  if (ev.target.closest("#drawer #f") && ["room","roomOff","backupRoom","allDay"].includes(ev.target.name)) syncFurn($("#drawer"));
+  if (ev.target.closest("#drawer #f") && ["room","roomOff","backupRoom","allDay","endRoom"].includes(ev.target.name)) syncFurn($("#drawer"));
   const id = ev.target.id;
   if (id === "fSer"){ applySeries(ev.target.value); syncFurn($("#drawer")); endSync(); refreshLive(); }
   if (ev.target.closest && ev.target.closest("#drawer #f")) markChanges();
@@ -2468,8 +2502,12 @@ function mobTags(d, noWk){
     ...notes.map(n => `<span class="lv info" data-ev="${n.id}">✎ ${esc(evName(n))}</span>`)].join("") + stayTags(d);
 }
 /* Übernachtungsgäste (mit Namen, Sebastian 02.11.2026) und Messen als Schilder am Tag (v121) */
-const stayTags = d => staysOn(d).map(q => `<span class="lv sty${q.x.status === "gebucht" ? "" : " vm"}" title="${esc(stayTip(q.x))}">${BED}${q.s > 0 ? "ab " + m2t(q.s) + " " : q.e < 1440 ? "bis " + m2t(q.e) + " " : ""}${esc(stayName(q.x))}${+q.x.persons > 1 ? " (" + (+q.x.persons) + ")" : ""}</span>`).join("")
-  + fairsOn(d).map(f => `<span class="lv fair">Messe: ${esc(f.name)}</span>`).join("");
+const stayTags = d => staysOn(d).map(q => `<span class="lv sty${q.x.status === "gebucht" ? "" : " vm"}" title="${esc(stayTip(q.x))}">${BED}${q.s > 0 ? "ab " + m2t(q.s) + " " : q.e < 1440 ? "bis " + m2t(q.e) + " " : ""}${esc(stayName(q.x))}${+q.x.persons > 1 ? " (" + (+q.x.persons) + ")" : ""}</span>`).join("") + fairTags(d);
+const fairTags = d => fairsOn(d).map(f => `<span class="lv fair">Messe: ${esc(f.name)}</span>`).join("");
+/* v138: Monatsansicht – Übernachtung nur am Anreise- (Tür hinein + Bett) und Abreisetag (Bett + Tür heraus), ohne Namen/Zeiten (Sebastian 06.11.2026) */
+const stayEnds = d => stayList().filter(x => x.from === d || x.to === d);
+const stayMonTags = d => { const l = stayEnds(d), tg = (x, ic, lab) => `<span class="lv sty mst${x.status === "gebucht" ? "" : " vm"}" role="img" aria-label="${lab}">${ic}</span>`;
+  return l.filter(x => x.to === d).map(x => tg(x, BED + IC_OUT, "Abreise Übernachtungsgast")).join("") + l.filter(x => x.from === d && x.to !== d).map(x => tg(x, IC_IN + BED, "Anreise Übernachtungsgast")).join("") + fairTags(d); };
 /* Hochformat Tag: Räume als Spalten, Zeit senkrecht */
 function mobDayV(d){
   const L = evList().filter(e => e.date === d).sort(sortEv), timed = L.filter(e => e.kind !== "notiz" && span(e)), open = L.filter(e => e.kind !== "notiz" && !span(e));
@@ -2569,7 +2607,7 @@ function mobMonList(){
     h += `<div class="mskip${ws ? " wks" : ""}" data-d="${a1}" data-e="${b1}"${ws ? ` data-wk="${mobMon(a1)}"` : ""} style="--n:${run.length}"><span>${mobDLab(a1)}${a1 !== b1 ? " – " + mobDLab(b1) : ""} · ${pz ? "Programmpause" : "keine Termine"}</span>${sw ? `<em>${sw}</em>` : ""}</div>`; run = []; };
   for (let d = a; d <= z; d = S_(D(d) + 1)){
     if (wdOf(d) === 1) flush();
-    const evs = evList().filter(e => e.date === d && e.kind !== "notiz").sort(sortEv), notes = evList().filter(e => e.date === d && e.kind === "notiz"), hol = FEIER[d], sp = sperrOn(d), sts = staysOn(d);
+    const evs = evList().filter(e => e.date === d && e.kind !== "notiz").sort(sortEv), notes = evList().filter(e => e.date === d && e.kind === "notiz"), hol = FEIER[d], sp = sperrOn(d), sts = stayEnds(d); /* v138: nur Anreise-/Abreisetage */
     if (!evs.length && !notes.length && !hol && !sp && !sts.length){ run.push(d); continue; }
     flush();
     /* v110: Feiertag ohne Termine in einer Programmpause wie die übrigen Pausentage (halbe Höhe), Text klein */
@@ -2577,7 +2615,7 @@ function mobMonList(){
       h += `<div class="mskip mhol${ws1 ? " wks" : ""}" data-d="${d}" data-e="${d}"${ws1 ? ` data-wk="${mobMon(d)}"` : ""} style="--n:1"><span>${mobDLab(d)} · ${esc(hol)}</span></div>`; continue; }
     const wk = weekKey(d), st = S.weeks[wk] || "belebt", [, w] = isoWeek(d), showKw = wk !== lastWk; lastWk = wk;
     const pre = d === t ? "Heute · " : d === tm ? "Morgen · " : "", fer = ferienOn(d);
-    const tags = [hol ? `<span class="lv err">${esc(hol)}</span>` : "", sp ? `<span class="lv err">Sperrtag</span>` : "", fer ? `<span class="lv info">${esc(fer)}</span>` : "", ...notes.map(n => `<span class="lv info" data-ev="${n.id}">✎ ${esc(evName(n))}</span>`)].join("") + stayTags(d);
+    const tags = [hol ? `<span class="lv err">${esc(hol)}</span>` : "", sp ? `<span class="lv err">Sperrtag</span>` : "", fer ? `<span class="lv info">${esc(fer)}</span>` : "", ...notes.map(n => `<span class="lv info" data-ev="${n.id}">✎ ${esc(evName(n))}</span>`)].join("") + stayMonTags(d);
     const rows = evs.map(e => { const sp2 = span(e), t2 = theme(e), bg = e.kind === "vermietung" ? "var(--muted)" : t2[0];
       return `<button class="mli ${stCls(e)}${errNoZone(e.id) ? " bad" : ""}" data-ev="${e.id}" style="--c:${bg}"><span class="mt"><b>${e.allDay ? "ganztägig" : e.start ? esc(e.start) : "offen"}</b>${!e.allDay && e.start && sp2 ? `<small>${mobDur(sp2.e - sp2.s)}</small>` : ""}</span><i class="md"></i><span class="mn">${esc(evName(e))}</span></button>`; }).join("");
     box(d); h += `<section class="mday${d === t ? " now" : ""}${hol || sp ? " hol" : ""}${showKw ? " wks" : ""}" data-d="${d}" data-e="${d}"${showKw ? ` data-wk="${mobMon(d)}"` : ""}><h3 data-mday="${d}" role="button" tabindex="0"><span class="mdl">${pre}${mobDLab(d)}</span>${tags ? `<span class="mtg">${tags}</span>` : ""}${showKw && stWord(st) ? `<span class="mkwl">${stWord(st)}</span>` : ""}</h3>${rows}</section>`;
@@ -2996,6 +3034,74 @@ function cleanInit(){
   CLEAN_AT = t && t.created ? t.created : "";
   UI.view = "reinigung"; render();
 }
+/* ---------- Datenkopie für Website, Team- und Reinigungsseite (v136) ---------- */
+/* Seit 04.11.2026 kann die Routine die Datenbank nicht mehr als Dateien exportieren (ArtifactData lehnt out_dir ab).
+   Ersatz: Der Planer legt selbst eine Kopie der Rohdaten als Datei (assets) ab; die Routine holt sie (Artifact read) und
+   entpackt sie mit belegung/tools/snapshot.py in den bisherigen Export-Ordner. Ablegen dürfen nur Bearbeiter/Eigentümer
+   (für Mitwirkende ist assets nicht freigeschaltet) – Katis Änderungen kommen über den geöffneten Planer eines Bearbeiters mit.
+   Ablauf: eigene Abos auf die Rohdaten (ohne normRooms), erste Kopie sobald alles vollständig geladen ist, danach bei
+   Änderungen höchstens alle 15 Minuten. meta/snapshot zeigt auf die neueste Kopie (id, at; seen = zuletzt als unverändert bestätigt); ältere Kopien (> 2 Std.) werden gelöscht.
+   v137: Die Bestätigung „unverändert“ schreibt nur noch das Feld seen (update) – ein Fenster mit veraltetem Stand kann den Verweis
+   nicht mehr auf eine gelöschte Kopie zurücksetzen (Fehler 06.11.2026, zwei Planer-Fenster offen). Gelöscht wird nie die Kopie, auf die meta/snapshot zeigt. */
+const SNAP_COLS = ["events","series","referents","absences"], SNAP_META = ["weeks","accepted","settings","stays","team","clean","websync"];
+const SNAP_GAP = 15*60e3, SNAP_SEEN = 30*60e3, SNAP_KEEP = 2*3600e3, SNAP_FORMAT = "survivors-home-datenkopie";
+const SNAP = {on:false, raw:{}, meta:{}, ok:new Set(), last:"", lastAt:0, seenAt:0, cand:"", candAt:0, busy:false, err:"", cur:null};
+function snapUse(n){ return window.claude && window.claude.use ? window.claude.use(n).catch(() => null) : Promise.resolve(null); }
+async function snapInit(){
+  if (OFFLINE || TEAM || CLEAN) return;
+  const d = await snapUse("db"); if (!d) return;
+  d.doc("meta/snapshot").onSnapshot(s => { SNAP.cur = s.exists ? (s.data() || {}) : null; if (UI.view === "sicherung") render(); }, () => {});
+  const a = await snapUse("assets"); if (!a) return; /* Mitwirkende: keine Ablage, nur Anzeige */
+  SNAP.on = true; SNAP.db = d; SNAP.assets = a;
+  const fresh = s => !(s.metadata && (s.metadata.fromCache || s.metadata.hasPendingWrites));
+  SNAP_COLS.forEach(c => d.collection(c).onSnapshot(s => {
+    const m = {}; s.docs.forEach(x => { m[x.id] = x.data(); }); SNAP.raw[c] = m;
+    if (fresh(s)) SNAP.ok.add(c); else SNAP.ok.delete(c); snapTick();
+  }, () => SNAP.ok.delete(c)));
+  SNAP_META.forEach(n => d.doc("meta/" + n).onSnapshot(s => {
+    if (s.exists) SNAP.meta[n] = s.data(); else delete SNAP.meta[n];
+    if (fresh(s)) SNAP.ok.add("m:" + n); else SNAP.ok.delete("m:" + n); snapTick();
+  }, () => SNAP.ok.delete("m:" + n)));
+  setInterval(snapTick, 60e3);
+}
+function snapBody(){ return JSON.stringify({collections:SNAP.raw, meta:SNAP.meta}); }
+async function snapTick(){
+  if (!SNAP.on || SNAP.busy || SNAP.ok.size < SNAP_COLS.length + SNAP_META.length) return;
+  const body = snapBody();
+  if (body === SNAP.last){ /* unverändert: nur „geprüft“ melden (meta/snapshot.seen), damit die Seiten den Stand ehrlich zeigen */
+    if (Date.now() - SNAP.seenAt < SNAP_SEEN || !SNAP.cur) return;
+    SNAP.busy = true; SNAP.seenAt = Date.now();
+    try { await SNAP.db.doc("meta/snapshot").update({seen:localIso()}); } catch(e){}
+    SNAP.busy = false; return; }
+  if (Date.now() - SNAP.lastAt < SNAP_GAP) return;
+  /* erst ablegen, wenn der Stand 15 Sek. unverändert ist (Abos melden Änderungen einzeln – nie eine halbe Kopie) */
+  if (body !== SNAP.cand){ SNAP.cand = body; SNAP.candAt = Date.now(); setTimeout(snapTick, 16e3); return; }
+  if (Date.now() - SNAP.candAt < 15e3) return;
+  if (!Object.keys(SNAP.raw.events || {}).length || !Object.keys(SNAP.raw.series || {}).length) return; /* nie eine leere Kopie ablegen */
+  SNAP.busy = true;
+  try {
+    const at = localIso(), txt = `{"format":"${SNAP_FORMAT}","version":1,"created":"${at}",` + body.slice(1);
+    const r = await SNAP.assets.upload(new Blob([txt], {type:"application/json"}), {type:"application/json"});
+    await SNAP.db.doc("meta/snapshot").set({id:r.id, at, seen:at, bytes:r.sizeBytes || txt.length, events:Object.keys(SNAP.raw.events).length});
+    SNAP.last = body; SNAP.lastAt = SNAP.seenAt = Date.now(); SNAP.err = "";
+    snapClean(r.id);
+  } catch(e){ SNAP.err = (e && e.code) || "Fehler"; SNAP.lastAt = Date.now(); /* nächster Versuch frühestens in 15 Min. */ }
+  SNAP.busy = false; if (UI.view === "sicherung") render();
+}
+async function snapClean(keep){ /* ältere Kopien löschen (nur JSON-Dateien, älter als 2 Std.; die neueste bleibt immer) */
+  try { const l = await SNAP.assets.list(), lim = Date.now() - SNAP_KEEP;
+    for (const x of (l.assets || [])) if (x.id !== keep && x.id !== (SNAP.cur && SNAP.cur.id) && x.contentType === "application/json" && Date.parse(x.createdAt) < lim) await SNAP.assets.delete(x.id).catch(() => {});
+  } catch(e){}
+}
+function snapCard(){
+  const c = SNAP.cur, seen = c ? (c.seen && c.seen > (c.at || "") ? c.seen : c.at) : "";
+  const age = seen ? (Date.now() - new Date(seen).getTime()) / 3600e3 : null;
+  const st = !c ? `<span class="lv warn">noch keine Datenkopie</span>` : `<span class="lv ${age > 24 ? "warn" : "info"}">Datenkopie vom ${esc(bkWhen(c.at))}${seen !== c.at ? `, unverändert bestätigt ${esc(bkWhen(seen))}` : ""}</span>`;
+  return `<p>Website, Team-Seite und Reinigungsseite werden aus einer Datenkopie gebaut, die dieser Planer automatisch ablegt (beim Öffnen und nach Änderungen höchstens alle 15 Minuten; ohne Änderungen bestätigt er alle 30 Minuten, dass sie aktuell ist). Die Seiten übernehmen sie beim nächsten Lauf (Mo–Fr 5, 9, 11, 13, 15, 17, 19 Uhr).</p>
+    <p>${st}</p>${SNAP.err ? `<p><span class="lv warn">Ablegen fehlgeschlagen (${esc(SNAP.err)}) – nächster Versuch in 15 Minuten</span></p>` : ""}
+    <p class="notes">${SNAP.on ? "Dieser Browser legt die Kopie ab, solange der Planer geöffnet ist." : "Ablegen können nur Bearbeiter des Planers. Änderungen von hier kommen mit, sobald ein Bearbeiter den Planer geöffnet hat."}</p>`;
+}
+snapInit();
 /* ---------- Start ---------- */
 (function init(){
   try { const v = localStorage.getItem("shp-view"); if (v && VIEWS[v]) UI.view = v === "anfragen" ? "referenten" : v; UI.yearDetail = localStorage.getItem("shp-ydet") === "1"; UI.yPos = localStorage.getItem("shp-ypos") || null; UI.week = localStorage.getItem("shp-week") || UI.week; UI.yRestore = UI.view === "jahr"; } catch(e){}
