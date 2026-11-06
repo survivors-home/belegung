@@ -166,8 +166,13 @@ table.year{table-layout:fixed;min-width:1150px}
 .weeknav{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .weeknav .qh{margin-left:2px}
 .ynav h2{margin:0 0 0 6px}
-/* Jahresüberblick: Kopfleiste und Steuerleiste kleben oben (body darf dafür wachsen) */
-body.vjahr{height:auto;min-height:100%}
+/* Kopfleiste (Hauptmenü) klebt in allen Ansichten oben (body darf dafür wachsen; v138, vorher nur Jahresüberblick) */
+body.vjahr,body:not(.mobmode){height:auto;min-height:100%}
+/* v138: mitlaufender Spaltenkopf der Listen (Kopie unter der Kopfleiste, folgt dem waagerechten Scrollen) */
+#thfix{position:fixed;z-index:19;overflow:hidden;background:var(--paper);box-shadow:0 3px 4px -3px rgba(20,10,30,.18)}
+#thfix table{table-layout:fixed;margin:0}
+header.top.unstick{position:static}
+main tr{scroll-margin-top:calc(var(--hdh,0px) + 44px)}
 #hslot .hwrap{max-width:2250px;margin:0 auto;padding:4px 20px 0}
 body.dopen #hslot .hwrap{max-width:none}
 #hslot .head{margin-bottom:8px}
@@ -768,6 +773,9 @@ div.stay{cursor:default}
 .stb.vm{background:transparent;color:var(--ink);border:1px dashed #8a8a89}
 .lv.sty{background:#8a8a89;color:#fff}
 .lv.sty.vm{background:transparent;color:var(--ink);border:1px dashed #8a8a89}
+/* v138: Monatsansicht – Übernachtung nur als Symbole am Anreise-/Abreisetag */
+.lv.mst{display:inline-flex;align-items:center;gap:2px;padding-inline:5px}
+.lv.mst .bed{margin:0}
 .lv.fair{background:transparent;color:var(--muted);font-style:italic}
 .stayf label.cb{display:inline-flex;align-items:center;gap:4px}
 .vstay{left:2px;right:2px;width:auto;white-space:normal;display:flex;flex-direction:column;font-size:.62rem;line-height:1.15;padding:2px 3px;z-index:0}
@@ -912,7 +920,7 @@ details.pastl summary{cursor:pointer;color:var(--muted)}
   function start(data){
     window.__SHP_OFFLINE = true; window.__SHP_TEAM = true; window.__SHP_DATA = data;
     document.getElementById("lock").hidden = true;
-    const s = document.createElement("script"); s.src = "app.js?v=135"; document.body.appendChild(s);
+    const s = document.createElement("script"); s.src = "app.js?v=138"; document.body.appendChild(s);
   }
   async function tryPw(pw, remember){ try { const d = await open(pw); if (remember){ try { localStorage.setItem(KEY, pw); } catch(e){} } start(d); return true; } catch(e){ return false; } }
   document.getElementById("lkf").addEventListener("submit", async ev => { ev.preventDefault(); const pw = document.getElementById("lkpw").value; if (!(await tryPw(pw, true))) show(true); });
