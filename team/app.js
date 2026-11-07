@@ -54,7 +54,8 @@ const UI = {lPast:false, serFilter:"alle", view:"jahr", week:null, month:"alle",
 try { UI.sender = localStorage.getItem("shp-sender") || ""; } catch(e){ UI.sender = ""; }
 let db = null, downloads = null, ISS = new Map();
 /* Offline-Version (eigene HTML-Datei ohne Claude): gleicher Code, Daten lokal; Quelltext/Styles für das Erzeugen der Offline-Datei merken */
-const OFFLINE = !!window.__SHP_OFFLINE, OFF = {dirty:0, src:""}, TEAM = !!window.__SHP_TEAM; /* TEAM: Team-Seite auf GitHub (nur mobile Leseansicht, Daten eingebettet) */
+const OFFLINE = !!window.__SHP_OFFLINE, OFF = {dirty:0, src:"", base:null, saved:false, newer:""}, TEAM = !!window.__SHP_TEAM; /* TEAM: Team-Seite auf GitHub (nur mobile Leseansicht, Daten eingebettet) */
+const NOTFALL = !!window.__SHP_NOTFALL; /* v139 NOTFALL: Notfall-Planer auf GitHub (vollständiger Planer offline, Daten verschlüsselt eingebettet, Ausgangsstand OFF.base fürs Einspielen) */
 const SHP_SRC = (document.currentScript && document.currentScript.textContent) || "";
 const SHP_CSS = ([...document.querySelectorAll("style")].map(x => x.textContent).find(t => t.includes("Planertisch"))) || "";
 const SHP_HEAD = (() => { const h = document.querySelector("header.top"); return h ? h.outerHTML : ""; })();
@@ -2091,7 +2092,7 @@ const sortKeys = v => Array.isArray(v) ? v.map(sortKeys) : v && typeof v === "ob
 const bkNorm = o => { const c = Object.assign({}, o); delete c.id; return JSON.stringify(sortKeys(c)); };
 function backupObj(){
   const c = {}; BK_COLS.forEach(k => c[k] = JSON.parse(JSON.stringify(S[k] || {})));
-  return {format:BK_FORMAT, version:1, created:localIso(), source: OFFLINE ? "offline" : "online", collections:c,
+  return {format:BK_FORMAT, version:1, created:localIso(), source: NOTFALL ? "notfall" : OFFLINE ? "offline" : "online", ...(NOTFALL && OFF.base ? {base:OFF.base} : {}), collections:c,
     meta:{accepted:{items:JSON.parse(JSON.stringify(S.accepted || {}))}, weeks:{status:JSON.parse(JSON.stringify(S.weeks || {}))}, settings:JSON.parse(JSON.stringify(S.settings || {})), stays:{items:JSON.parse(JSON.stringify(S.stays || {})), fairs:JSON.parse(JSON.stringify(S.fairs || {}))}, ...(S.websync ? {websync:JSON.parse(JSON.stringify(S.websync))} : {})}};
 }
 const validBackup = b => !!(b && b.format === BK_FORMAT && b.collections && b.collections.events);
@@ -2115,11 +2116,14 @@ function offlineHtml(b){
   return `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SURVIVORS HOME Programmplaner (offline)</title><link rel="stylesheet" href="${FONT_URL}"><style>${SHP_CSS}</style></head><body>${body}<script>window.__SHP_OFFLINE=true;window.__SHP_DATA=${data};<\/script><script>${SHP_SRC}<\/script></body></html>`;
 }
 /* Offline: Zwischenstand im Browser sichern, Hinweisleiste */
-function offStore(){ try { localStorage.setItem("shp-offline", JSON.stringify({savedAt:localIso(), dirty:OFF.dirty, src:OFF.src, data:backupObj()})); } catch(e){} }
+const OFF_KEY = NOTFALL ? "shp-notfall" : "shp-offline";
+function offStore(){ try { localStorage.setItem(OFF_KEY, JSON.stringify({savedAt:localIso(), dirty:OFF.dirty, saved:OFF.saved, src:OFF.src, data:backupObj()})); } catch(e){ if (NOTFALL) toast("Zwischenstand im Browser nicht gespeichert – bitte Änderungen als Datei sichern"); } }
 function offTouch(){ if (!OFFLINE) return; OFF.dirty++; offStore(); offBanner(); }
 function offBanner(){ if (!OFFLINE) return; const b = $("#banner"); if (!b) return; b.hidden = false; b.className = "offbar";
+  if (NOTFALL){ b.innerHTML = `<b>Notfall-Planer</b> – ohne Claude, Änderungen nur in diesem Browser · Daten vom ${esc(OFF.base ? bkWhen(OFF.base.created) : "–")} · ${OFF.dirty ? `<span class="offd">${OFF.dirty} ungesicherte Änderung${OFF.dirty === 1 ? "" : "en"}</span>` : OFF.saved ? "alle Änderungen als Datei gesichert" : "keine Änderungen"}${OFF.newer ? ` · <span class="offd">neuere Daten vorhanden</span>` : ""} <button class="btn sm" data-view="sicherung">Sicherung</button>`; return; }
   b.innerHTML = `<b>Offline-Version</b> – ohne gemeinsame Datenbank, Änderungen nur in dieser Datei/diesem Browser · ${OFF.src ? "Daten: " + esc(OFF.src) : "noch keine Daten geladen"} · ${OFF.dirty ? `<span class="offd">${OFF.dirty} ungespeicherte Änderung${OFF.dirty === 1 ? "" : "en"}</span>` : "alles als Datei gespeichert"} <button class="btn sm" data-view="sicherung">Sicherung</button>`; }
 function offlineInit(){
+  if (NOTFALL) return nfInit();
   if (TEAM){ const t = window.__SHP_DATA || null; if (validBackup(t)) applyBackupLocal(t); else S.loaded = true; MB.mode = "woche"; MB.day = todayStr(); MB.scrollTo = MB.day; render(); return; }
   let b = window.__SHP_DATA || null, src = b ? "eingebettet, Stand " + bkWhen(b.created) : "", dirty = 0, auto = null;
   try { auto = JSON.parse(localStorage.getItem("shp-offline") || "null"); } catch(e){}
@@ -2145,15 +2149,19 @@ function bkDiff(b){
 const BK_F = [["date","Datum",v => v ? fmtY(v) : "–"],["start","Start",v => v || "–"],["dur","Dauer",v => v ? v + " Min" : "–"],["room","Raum",v => v || "–"],["status","Status",v => v || "–"],["title","Titel",v => v || "–"]];
 function bkEvLine(e, tag){
   let det = ""; const cur = S.events[e.id];
-  if (tag === "geändert" && cur){ const f = BK_F.filter(([k]) => (cur[k] ?? "") !== (e[k] ?? "")).map(([k, l, fm]) => l + " " + esc(fm(cur[k])) + " → " + esc(fm(e[k])));
+  if ((tag === "geändert" || tag === "Konflikt") && cur){ const f = BK_F.filter(([k]) => (cur[k] ?? "") !== (e[k] ?? "")).map(([k, l, fm]) => l + " " + esc(fm(cur[k])) + " → " + esc(fm(e[k])));
     det = f.length ? " · " + f.join(" · ") : " · sonstige Angaben (Notiz, Referenten, Zeiten …)"; }
-  return `<li><span class="lv ${tag === "nur online" ? "warn" : "info"}">${tag}</span> ${e.date ? fmtY(e.date) : ""} ${esc(e.start || "")} <b>${esc(evName(e))}</b>${det}</li>`;
+  return `<li><span class="lv ${tag === "nur online" || tag === "gelöscht" || tag === "Konflikt" ? "warn" : "info"}">${tag}</span> ${e.date ? fmtY(e.date) : ""} ${esc(e.start || "")} <b>${esc(evName(e))}</b>${det}</li>`;
 }
 function viewSicherung(){
-  const help = `<b>Sicherung</b><ul>${OFFLINE ? `<li>Dies ist die <b>Offline-Version</b>: Sie läuft ohne Claude im Browser und prüft mit denselben Regeln wie das Online-Tool. Es gibt keine gemeinsame Datenbank – jede Kopie ist für sich.</li><li><b>Backup-Datei laden</b>: eine JSON-Sicherung öffnen (ersetzt den Stand in dieser Version).</li><li><b>Als Backup-Datei speichern</b>: aktuellen Stand als JSON sichern. Zusätzlich wird nach jeder Änderung ein Zwischenstand im Browser gehalten.</li><li>Zurück ins Online-Tool: dort unter „Einstellungen“ → „Sicherung“ → „Backup einspielen“.</li><li>Nicht verfügbar: Auswertung von Antwortmails durch Claude.</li>` : `<li><b>Backup herunterladen</b>: vollständiger Stand als JSON-Datei (alle Termine, Reihen, Referenten, Nachrichten, Abwesenheiten, Wochenstatus, akzeptierte Konflikte).</li><li><b>Offline-Version herunterladen</b>: der Planer als eine HTML-Datei mit dem aktuellen Stand – öffnet per Doppelklick im Browser, ohne Claude. Bitte nach größeren Änderungen am Tool neu herunterladen.</li><li><b>Backup einspielen</b>: zeigt die Unterschiede zwischen Datei und aktuellem Stand; nach Bestätigung werden sie übernommen. Vorher wird automatisch der aktuelle Stand als Datei gesichert.</li><li><b>Datenkopie für die Website</b>: Website, Team-Seite und Reinigungsseite entstehen aus einer Kopie der Daten, die der geöffnete Planer eines Bearbeiters automatisch ablegt. Ist kein Bearbeiter im Planer, bleiben die Seiten auf dem Stand der letzten Kopie (die Team-Seite warnt dann).</li>`}</ul>`;
+  const help = `<b>Sicherung</b><ul>${NOTFALL ? `<li>Dies ist der <b>Notfall-Planer</b>: der vollständige Planer ohne Claude, mit dem Stand der letzten Aktualisierung. Gleiche Ansichten und Prüfregeln; es fehlen die gemeinsame Datenbank und die Auswertung von Antwortmails.</li><li>Änderungen bleiben nur in diesem Browser (auch nach Neuladen). Andere sehen sie nicht.</li><li><b>Änderungen als Datei sichern</b>: speichert eine JSON-Datei. Sobald der Planer in Claude wieder geht: dort „Einstellungen“ → „Sicherung“ → „Backup einspielen“ und diese Datei wählen. Übernommen wird nur, was hier geändert wurde; was inzwischen online geändert wurde, bleibt erhalten (bei Überschneidungen wird nachgefragt).</li><li><b>Lokale Daten löschen</b>: nach dem Einspielen die Daten aus diesem Browser entfernen.</li>` : OFFLINE ? `<li>Dies ist die <b>Offline-Version</b>: Sie läuft ohne Claude im Browser und prüft mit denselben Regeln wie das Online-Tool. Es gibt keine gemeinsame Datenbank – jede Kopie ist für sich.</li><li><b>Backup-Datei laden</b>: eine JSON-Sicherung öffnen (ersetzt den Stand in dieser Version).</li><li><b>Als Backup-Datei speichern</b>: aktuellen Stand als JSON sichern. Zusätzlich wird nach jeder Änderung ein Zwischenstand im Browser gehalten.</li><li>Zurück ins Online-Tool: dort unter „Einstellungen“ → „Sicherung“ → „Backup einspielen“.</li><li>Nicht verfügbar: Auswertung von Antwortmails durch Claude.</li>` : `<li><b>Backup herunterladen</b>: vollständiger Stand als JSON-Datei (alle Termine, Reihen, Referenten, Nachrichten, Abwesenheiten, Wochenstatus, akzeptierte Konflikte).</li><li><b>Offline-Version herunterladen</b>: der Planer als eine HTML-Datei mit dem aktuellen Stand – öffnet per Doppelklick im Browser, ohne Claude. Bitte nach größeren Änderungen am Tool neu herunterladen.</li><li><b>Backup einspielen</b>: zeigt die Unterschiede zwischen Datei und aktuellem Stand; nach Bestätigung werden sie übernommen. Vorher wird automatisch der aktuelle Stand als Datei gesichert.</li><li><b>Datenkopie für die Website</b>: Website, Team-Seite, Reinigungsseite und Notfall-Planer entstehen aus einer Kopie der Daten, die der geöffnete Planer eines Bearbeiters automatisch ablegt. Ist kein Bearbeiter im Planer, bleiben die Seiten auf dem Stand der letzten Kopie (die Team-Seite warnt dann).</li><li><b>Notfall-Planer</b>: Falls der Planer in Claude nicht erreichbar ist, dort weiterarbeiten und die Änderungen später hier einspielen (eigenes Passwort, nur für Bearbeiter).</li>`}</ul>`;
   const card = (t, inner) => `<section class="bkc"><h3>${t}</h3>${inner}</section>`;
   let html = `${setNav()}<div class="head"><h2>Sicherung ${qh(help)}</h2></div><div class="bkg">`;
-  if (OFFLINE){
+  if (NOTFALL){
+    html += card("Stand dieses Notfall-Planers", `<p>Daten vom ${esc(OFF.base ? bkWhen(OFF.base.created) : "–")} (letzte Aktualisierung vor dem Ausfall).</p><p>${OFF.dirty ? `<span class="lv warn">${OFF.dirty} ungesicherte Änderung${OFF.dirty === 1 ? "" : "en"}</span> – bitte als Datei sichern.` : OFF.saved ? `<span class="lv info">alle Änderungen als Datei gesichert</span>` : `<span class="lv info">noch keine Änderungen</span>`}</p>${OFF.newer ? `<p><span class="lv warn">Es gibt neuere Daten (Stand ${esc(bkWhen(OFF.newer))}).</span></p><p class="notes">Dieser Browser arbeitet weiter mit dem älteren Stand und den Änderungen hier. Zum Wechseln: Änderungen sichern, dann „Lokale Daten löschen“.</p>` : ""}`)
+      + card("Änderungen sichern", `<p><button class="btn primary" data-bk="json">Änderungen als Datei sichern</button></p><p class="notes">Zurück in den Planer, sobald Claude wieder geht: Planer öffnen → „Einstellungen“ → „Sicherung“ → „Backup einspielen“ → diese Datei wählen. Übernommen wird nur, was hier geändert wurde.</p>`)
+      + card("Lokale Daten löschen", `<p>Entfernt den Stand und alle Änderungen aus diesem Browser und lädt die aktuellen Daten neu. Erst nach dem Einspielen verwenden.</p><p><button class="btn" data-bk="nfreset">Lokale Daten löschen</button></p>`);
+  } else if (OFFLINE){
     html += card("Stand dieser Offline-Version", `<p>${OFF.src ? "Daten: " + esc(OFF.src) : "Noch keine Daten geladen."}</p><p>${OFF.dirty ? `<span class="lv warn">${OFF.dirty} ungespeicherte Änderung${OFF.dirty === 1 ? "" : "en"}</span> – bitte als Backup-Datei speichern.` : `<span class="lv info">alles als Datei gespeichert</span>`}</p>`)
       + card("Backup-Datei laden", `<p>JSON-Sicherung aus dem Online-Tool oder aus dieser Offline-Version öffnen. Der Stand hier wird dabei ersetzt.</p><input type="file" id="bkLoad" accept=".json,application/json">`)
       + card("Speichern", `<p><button class="btn primary" data-bk="json">Als Backup-Datei speichern</button></p><p><button class="btn" data-bk="html">Offline-Version mit aktuellem Stand speichern</button></p><p class="notes">Zurück ins Online-Tool: dort „Einstellungen“ → „Sicherung“ → „Backup einspielen“ und die gespeicherte JSON-Datei wählen.</p>`);
@@ -2161,15 +2169,20 @@ function viewSicherung(){
     html += card("Backup herunterladen", `<p>Vollständiger Stand als JSON-Datei – zum Aufbewahren (z. B. OneDrive) und zum Wiederherstellen.</p><p><button class="btn primary" data-bk="json">Backup herunterladen</button></p>`)
       + card("Offline-Version herunterladen", `<p>Der Planer als eine HTML-Datei mit dem aktuellen Stand. Öffnet per Doppelklick im Browser, ohne Claude: Wochenansicht, Bearbeiten, Prüfregeln und Alternativen funktionieren; es fehlen nur die gemeinsame Datenbank und die Auswertung von Antwortmails.</p><p><button class="btn primary" data-bk="html">Offline-Version herunterladen</button></p>`)
       + card("Backup einspielen", `<p>Eine JSON-Sicherung (z. B. aus der Offline-Version) zurück in die gemeinsame Datenbank übernehmen. Zuerst werden die Unterschiede angezeigt.</p><input type="file" id="bkFile" accept=".json,application/json">`)
-      + card("Team-Seite fürs Handy", `<p>Mobile Monatsansicht als eigene Web-App: <a href="${TEAM_URL}" target="_blank" rel="noopener">${TEAM_URL.replace("https://","")}</a>. Die Daten liegen dort nur verschlüsselt; geöffnet wird mit dem Team-Passwort. Aktualisierung automatisch (werktags 9–19 Uhr alle 2 Std., täglich ca. 5 Uhr) aus der Datenkopie (siehe unten).</p>
+      + card("Team-Seite fürs Handy", `<p>Mobile Monatsansicht als eigene Web-App: <a href="${TEAM_URL}" target="_blank" rel="noopener">${TEAM_URL.replace("https://","")}</a>. Die Daten liegen dort nur verschlüsselt; geöffnet wird mit dem Team-Passwort. Aktualisierung automatisch (Mo–Fr um 7, 11, 14, 16 und 19 Uhr) aus der Datenkopie (siehe unten).</p>
         <p>${S.teamPass ? `<span class="lv info">Passwort gesetzt${S.teamSet ? " am " + esc(bkWhen(S.teamSet)) : ""}</span> <details style="display:inline-block"><summary class="notes">anzeigen</summary><code>${esc(S.teamPass)}</code></details>` : `<span class="lv warn">noch kein Passwort – Team-Seite wird nicht erzeugt</span>`}</p>
         <p><input class="in" type="text" id="teamPw" autocomplete="off" placeholder="neues Passwort (mind. 12 Zeichen)" style="width:100%"></p><p><button class="btn primary" data-bk="teampw">Passwort speichern</button></p>
         <p class="notes">Lang und nicht erratbar wählen (z. B. vier zufällige Wörter). Nach einer Änderung gilt das neue Passwort ab der nächsten Aktualisierung; alle müssen es dann neu eingeben. Lesbar für alle mit Zugriff auf diesen Planer.</p>`)
+      + card("Notfall-Planer", `<p>Falls der Planer in Claude nicht erreichbar ist: <a href="${nfUrl()}" target="_blank" rel="noopener">${nfUrl().replace("https://","")}</a> – der vollständige Planer mit dem Stand der letzten Aktualisierung, bearbeitbar ohne Claude. Änderungen dort als Datei sichern und hier unter „Backup einspielen“ zurückholen; übernommen wird nur, was dort geändert wurde.</p>
+        <p>${S.nfPass ? `<span class="lv info">Passwort gesetzt${S.nfSet ? " am " + esc(bkWhen(S.nfSet)) : ""}</span> <details style="display:inline-block"><summary class="notes">anzeigen</summary><code>${esc(S.nfPass)}</code></details>` : `<span class="lv warn">noch kein Passwort – Notfall-Planer wird nicht erzeugt</span>`}</p>
+        <p><input class="in" type="text" id="nfPw" autocomplete="off" placeholder="neues Passwort (mind. 12 Zeichen)" style="width:100%"></p><p><button class="btn primary" data-bk="nfpw">Passwort speichern</button></p>
+        <p class="notes">Enthält alle Daten einschließlich Kontaktdaten der Referenten – Passwort nur an Bearbeiter geben, nicht an das Team. Muss sich vom Team- und vom Reinigungs-Passwort unterscheiden. Gilt ab der nächsten Aktualisierung. Lesbar für alle mit Zugriff auf diesen Planer.</p>`)
       + card("Datenkopie für die Website", snapCard());
   }
   html += `</div>`;
   const imp = UI.imp;
-  if (imp && !OFFLINE){ const d = imp.diff, n = k => d.cols[k];
+  if (imp && imp.nf && !OFFLINE) html += nfImpView(imp);
+  else if (imp && !OFFLINE){ const d = imp.diff, n = k => d.cols[k];
     const rows = BK_COLS.map(k => `<tr><td>${BK_LBL[k]}</td><td>${n(k).nu.length}</td><td>${n(k).ch.length}</td><td>${n(k).gone.length}</td></tr>`).join("");
     const sum = BK_COLS.reduce((a, k) => a + n(k).nu.length + n(k).ch.length, 0), gone = BK_COLS.reduce((a, k) => a + n(k).gone.length, 0);
     const ev = n("events"), lines = [...ev.nu.map(e => bkEvLine(e, "neu")), ...ev.ch.map(e => bkEvLine(e, "geändert")), ...ev.gone.map(e => bkEvLine(e, "nur online"))];
@@ -2199,11 +2212,17 @@ async function bkApply(){
 let TEAM_URL = "https://belegung.survivors-home.de/team/"; /* Einstellungen */
 async function bkAction(k){
   if (k === "teampw"){ const v = ($("#teamPw").value || "").trim(); if (v.length < 12){ toast("Mindestens 12 Zeichen"); return; } if (!db){ toast("Nur im Online-Tool möglich"); return; }
+    if (S.nfPass && v === S.nfPass){ toast("Bitte ein anderes Passwort als für den Notfall-Planer"); return; }
     try { await db.doc("meta/team").set({pass:v, set:localIso()}); toast("Team-Passwort gespeichert – gilt ab der nächsten Aktualisierung"); } catch(e){ toast("Passwort nicht gespeichert"); } return; }
-  if (k === "json"){ const r = await saveFile(`Programmplaner_Backup_${bkStamp()}.json`, JSON.stringify(backupObj(), null, 1), "application/json");
-    if (r){ toast("Backup gespeichert"); if (OFFLINE){ OFF.dirty = 0; offStore(); offBanner(); render(); } } return; }
+  if (k === "nfpw"){ const v = ($("#nfPw").value || "").trim(); if (v.length < 12){ toast("Mindestens 12 Zeichen"); return; } if (!db){ toast("Nur im Online-Tool möglich"); return; }
+    if (v === S.teamPass || v === S.cleanPass){ toast("Bitte ein anderes Passwort als für Team- und Reinigungsseite"); return; }
+    try { await db.doc("meta/notfall").set({pass:v, set:localIso()}); toast("Passwort Notfall-Planer gespeichert – gilt ab der nächsten Aktualisierung"); } catch(e){ toast("Passwort nicht gespeichert"); } return; }
+  if (k === "nfreset"){ if (!confirm(OFF.dirty ? OFF.dirty + " ungesicherte Änderung(en) gehen verloren. Lokale Daten trotzdem löschen?" : "Lokale Daten aus diesem Browser löschen und neu laden?")) return;
+    OFF.dirty = 0; try { localStorage.removeItem(OFF_KEY); } catch(e){} location.reload(); return; }
+  if (k === "json"){ const r = await saveFile(NOTFALL ? `Notfall-Aenderungen_${bkStamp()}.json` : `Programmplaner_Backup_${bkStamp()}.json`, JSON.stringify(backupObj(), null, 1), "application/json");
+    if (r){ toast(NOTFALL ? "Änderungen als Datei gesichert" : "Backup gespeichert"); if (OFFLINE){ OFF.dirty = 0; OFF.saved = true; offStore(); offBanner(); render(); } } return; }
   if (k === "html"){ if (!SHP_SRC || !SHP_CSS){ toast("Offline-Version hier nicht erzeugbar"); return; } const r = await saveFile(`Programmplaner_offline_${bkStamp()}.html`, offlineHtml(backupObj()), "text/html"); if (r) toast("Offline-Version gespeichert"); return; }
-  if (k === "apply") return bkApply();
+  if (k === "apply") return UI.imp && UI.imp.nf ? nfApply() : bkApply();
   if (k === "cancel"){ UI.imp = null; return render(); }
 }
 async function bkReadFile(input){
@@ -2211,6 +2230,92 @@ async function bkReadFile(input){
   try { const b = JSON.parse(await f.text()); if (!validBackup(b)){ toast("Keine Backup-Datei des Programmplaners"); return null; } return {b, name:f.name}; }
   catch(e){ toast("Datei nicht lesbar"); return null; }
   finally { input.value = ""; }
+}
+
+/* v139 Notfall-Planer (belegung.survivors-home.de/notfall/, eigenes Passwort): vollständiger Planer offline mit dem Stand der letzten
+   Aktualisierung. OFF.base = Ausgangsstand (tief kopiert); er geht mit in die gesicherte Datei. Beim Einspielen wird nur übernommen,
+   was sich zwischen Ausgangsstand und Datei unterscheidet; wurde derselbe Eintrag inzwischen auch online geändert = Konflikt
+   (ohne Haken bleibt der Online-Stand). Der Stand im Browser bleibt auch nach dem Sichern erhalten, bis „Lokale Daten löschen“. */
+const nfUrl = () => TEAM_URL.replace(/team\/?$/, "notfall/");
+function nfInit(){
+  const srv = validBackup(window.__SHP_DATA) ? window.__SHP_DATA : null; let auto = null;
+  try { auto = JSON.parse(localStorage.getItem(OFF_KEY) || "null"); } catch(e){}
+  if (auto && validBackup(auto.data) && validBackup(auto.data.base)){
+    OFF.base = auto.data.base; applyBackupLocal(auto.data); OFF.dirty = auto.dirty || 0; OFF.saved = !!auto.saved;
+    OFF.src = "im Browser seit " + bkWhen(auto.savedAt);
+    if (srv && (srv.created || "") > (OFF.base.created || "")) OFF.newer = srv.created;
+  } else if (srv){ OFF.base = JSON.parse(JSON.stringify(srv)); applyBackupLocal(srv); }
+  else { S.loaded = true; UI.view = "sicherung"; }
+  offBanner(); render();
+  window.addEventListener("beforeunload", e => { if (OFF.dirty){ e.preventDefault(); e.returnValue = ""; } });
+}
+const nfN = (o, id) => { if (!o) return null; const x = normRooms(Object.assign({}, o)); x.id = id; return x; };
+const nfEq = (a, b) => (a ? bkNorm(a) : "") === (b ? bkNorm(b) : "");
+const nfJ = v => v === undefined ? "-" : JSON.stringify(sortKeys(v));
+function nfPart(fv, bv, cv, skip){ /* Schlüssel-Maps (Wochenstatus, akzeptierte Konflikte, Einstellungen, Übernachtungen, Messen); skip: Zeitstempel */
+  const ch = {}, conf = [];
+  for (const key of new Set([...Object.keys(fv || {}), ...Object.keys(bv || {})])){
+    if (skip && skip.includes(key)) continue;
+    const f = (fv || {})[key], o = (bv || {})[key], c = (cv || {})[key];
+    if (nfJ(f) === nfJ(o) || nfJ(c) === nfJ(f)) continue;
+    ch[key] = f; if (nfJ(c) !== nfJ(o)) conf.push(key); }
+  return {ch, conf};
+}
+function nfDiff(b){
+  const base = b.base, out = {cols:{}, meta:{}};
+  BK_COLS.forEach(k => { const cur = S[k] || {}, inc = (b.collections || {})[k] || {}, bas = (base.collections || {})[k] || {}, r = {nu:[], ch:[], gone:[], conf:[]};
+    for (const id of new Set([...Object.keys(inc), ...Object.keys(bas)])){
+      const f = nfN(inc[id], id), o = nfN(bas[id], id), c = cur[id] || null;
+      if (nfEq(f, o) || nfEq(c, f)) continue; /* im Notfall-Planer unverändert bzw. online schon gleich */
+      const kind = !f ? "gone" : !o ? "nu" : "ch", x = f || c;
+      if (!nfEq(c, o)) r.conf.push({kind, x}); else r[kind].push(x); }
+    out.cols[k] = r; });
+  const fm = b.meta || {}, bm = base.meta || {};
+  out.meta.weeks = nfPart((fm.weeks || {}).status, (bm.weeks || {}).status, S.weeks);
+  out.meta.acc = nfPart((fm.accepted || {}).items, (bm.accepted || {}).items, S.accepted);
+  out.meta.set = nfPart(fm.settings, bm.settings, S.settings, ["set"]);
+  out.meta.stays = nfPart((fm.stays || {}).items, (bm.stays || {}).items, S.stays);
+  out.meta.fairs = nfPart((fm.stays || {}).fairs, (bm.stays || {}).fairs, S.fairs);
+  return out;
+}
+const NF_ML = {weeks:"Wochenstatus", acc:"Akzeptierte Konflikte", set:"Einstellungen", stays:"Übernachtungen", fairs:"Messen"};
+function nfImpView(imp){
+  const d = imp.nf, n = k => d.cols[k], pm = Object.keys(NF_ML).map(k => d.meta[k]);
+  const conf = BK_COLS.reduce((a, k) => a + n(k).conf.length, 0) + pm.reduce((a, p) => a + p.conf.length, 0);
+  const tot = BK_COLS.reduce((a, k) => a + n(k).nu.length + n(k).ch.length + n(k).gone.length + n(k).conf.length, 0) + pm.reduce((a, p) => a + Object.keys(p.ch).length, 0);
+  const rows = BK_COLS.map(k => `<tr><td>${BK_LBL[k]}</td><td>${n(k).nu.length}</td><td>${n(k).ch.length}</td><td>${n(k).gone.length}</td><td>${n(k).conf.length}</td></tr>`).join("")
+    + Object.entries(NF_ML).map(([k, l]) => { const p = d.meta[k], c = Object.keys(p.ch).length - p.conf.length; return c || p.conf.length ? `<tr><td>${l}</td><td colspan="3">${c} geändert</td><td>${p.conf.length}</td></tr>` : ""; }).join("");
+  const ev = n("events"), lines = [...ev.nu.map(e => bkEvLine(e, "neu")), ...ev.ch.map(e => bkEvLine(e, "geändert")), ...ev.gone.map(e => bkEvLine(e, "gelöscht")), ...ev.conf.map(y => bkEvLine(y.x, "Konflikt"))];
+  return `<section class="bkc bki"><h3>Einspielen aus dem Notfall-Planer: ${esc(imp.name)} <span class="notes">(Ausgangsstand ${esc(bkWhen(imp.b.base.created))}, gesichert ${esc(bkWhen(imp.b.created))})</span></h3>
+      <p>Übernommen werden nur die Änderungen, die im Notfall-Planer gemacht wurden. Was seitdem online geändert wurde, bleibt erhalten.</p>
+      <table class="bkt"><thead><tr><th>Bereich</th><th>neu</th><th>geändert</th><th>gelöscht</th><th>Konflikt</th></tr></thead><tbody>${rows}</tbody></table>
+      ${lines.length ? `<details open><summary>Termine im Einzelnen (${lines.length})</summary><ul class="bkl">${lines.slice(0, 400).join("")}</ul></details>` : `<p class="notes">Keine Änderungen an Terminen.</p>`}
+      ${conf ? `<p><span class="lv warn">${conf} Konflikt${conf === 1 ? "" : "e"}</span> – derselbe Eintrag wurde im Notfall-Planer und online geändert (Angaben in der Liste: online → Notfall-Planer). Ohne Haken bleibt dort der Online-Stand.</p><div class="bko"><label class="cb"><input type="checkbox" id="nfConf"> Bei Konflikten den Stand aus dem Notfall-Planer übernehmen</label></div>` : ""}
+      ${tot ? "" : `<p class="notes">Die Datei enthält keine Änderungen gegenüber dem aktuellen Stand.</p>`}
+      <p class="notes">Vor dem Einspielen wird der aktuelle Online-Stand automatisch als Datei gesichert.</p>
+      <p><button class="btn primary" data-bk="apply"${tot ? "" : " disabled"}>Einspielen</button> <button class="btn" data-bk="cancel">Abbrechen</button></p></section>`;
+}
+async function nfApply(){
+  const imp = UI.imp; if (!imp || !imp.nf || !db){ toast("Einspielen nur im Online-Tool möglich"); return; }
+  const conf = !!($("#nfConf") && $("#nfConf").checked), d = imp.nf;
+  toast("Zuerst wird der aktuelle Stand gesichert …");
+  if (!await saveFile(`Programmplaner_vor_Einspielen_${bkStamp()}.json`, JSON.stringify(backupObj(), null, 1), "application/json")){ toast("Abgebrochen: aktueller Stand wurde nicht gesichert"); return; }
+  let ok = 0, fail = 0;
+  for (const k of BK_COLS){ const c = d.cols[k];
+    const list = [...c.nu.map(x => ["nu", x]), ...c.ch.map(x => ["ch", x]), ...c.gone.map(x => ["gone", x]), ...(conf ? c.conf.map(y => [y.kind, y.x]) : [])];
+    for (const [kind, x] of list){
+      if (kind === "gone"){ await del(k, x.id); if (S[k]) delete S[k][x.id]; ok++; }
+      else if (await put(k, x.id, x)){ S[k][x.id] = x; ok++; } else fail++; } }
+  const use = p => Object.keys(p.ch).filter(key => conf || !p.conf.includes(key));
+  const mg = (cur, p) => { const nx = Object.assign({}, cur || {}); use(p).forEach(key => { if (p.ch[key] === undefined) delete nx[key]; else nx[key] = p.ch[key]; }); return nx; };
+  const m = d.meta;
+  try {
+    if (use(m.weeks).length){ const w = mg(S.weeks, m.weeks); await db.doc("meta/weeks").set({status:w}); S.weeks = w; ok++; }
+    if (use(m.acc).length){ const a = mg(S.accepted, m.acc); await db.doc("meta/accepted").set({items:a}); S.accepted = a; ok++; }
+    if (use(m.set).length){ const st = mg(S.settings, m.set); st.set = localIso(); await db.doc("meta/settings").set(st); S.settings = st; applySettings(); ok++; }
+    if (use(m.stays).length || use(m.fairs).length){ const it = mg(S.stays, m.stays), fa = mg(S.fairs, m.fairs); await db.doc("meta/stays").set({items:it, fairs:fa, set:localIso()}); S.stays = it; S.fairs = fa; ok++; }
+  } catch(e){ fail++; }
+  UI.imp = null; render(); toast(fail ? ok + " übernommen, " + fail + " fehlgeschlagen" : ok + " Änderungen aus dem Notfall-Planer eingespielt");
 }
 
 /* ---------- CSV ---------- */
@@ -2348,7 +2453,7 @@ document.addEventListener("input", ev => {
 });
 document.addEventListener("change", async ev => {
   if (ev.target.id === "sFrom" && ev.target.value){ const to = $("#sTo"); if (to && (!to.value || to.value <= ev.target.value)) to.value = S_(D(ev.target.value) + 1); return; }
-  if (ev.target.id === "bkFile"){ const r = await bkReadFile(ev.target); if (r){ UI.imp = {b:r.b, name:r.name, diff:bkDiff(r.b)}; render(); } return; }
+  if (ev.target.id === "bkFile"){ const r = await bkReadFile(ev.target); if (r){ UI.imp = r.b.source === "notfall" && validBackup(r.b.base) ? {b:r.b, name:r.name, nf:nfDiff(r.b)} : {b:r.b, name:r.name, diff:bkDiff(r.b)}; render(); } return; }
   if (ev.target.id === "bkLoad"){ const r = await bkReadFile(ev.target); if (!r) return; if (OFF.dirty && !confirm(OFF.dirty + " ungespeicherte Änderung(en) gehen verloren. Trotzdem laden?")) return;
     applyBackupLocal(r.b); OFF.src = r.name + " (Stand " + bkWhen(r.b.created) + ")"; OFF.dirty = 0; offStore(); offBanner(); UI.drawer = null; render(); toast("Backup geladen"); return; }
   if (ev.target.classList && ev.target.classList.contains("endt")) return; /* Prüfung beim Verlassen des Feldes (focusout) */
@@ -2449,10 +2554,11 @@ function mobSan(t){
   return s.replace(/^Hybrid nicht möglich: Team abwesend$/, "Hybrid nicht möglich: Technik-Verantwortlicher abwesend");
 }
 const mobMon = d => S_(D(d) - (wdOf(d)+6)%7);
-/* v109 Team-Seite: Warnung bei altem Datenstand. Routine läuft 5:17 und 9:17–19:17 alle 2 h; Warnung, wenn der Stand älter als 4 h ist
-   und ein geplanter Lauf (mit 30 Min Spielraum) danach hätte kommen müssen – nachts gilt der Stand von 19:17 als aktuell */
-const RUNS = [[5,17],[9,17],[11,17],[13,17],[15,17],[17,17],[19,17]];
-function lastRunBefore(t){ for (let k = 0; k < 3; k++){ const d0 = new Date(t.getFullYear(), t.getMonth(), t.getDate() - k);
+/* v109 Team-Seite: Warnung bei altem Datenstand, wenn der Stand älter als 4 h ist
+   und ein geplanter Lauf (mit 30 Min Spielraum) danach hätte kommen müssen – nachts gilt der Stand von 19:17 als aktuell.
+   v139: Routine seit 06.11.2026 Mo–Fr 7:17, 11:17, 14:17, 16:17, 19:17; Samstag/Sonntag kein Lauf (vorher Warnung am Wochenende) */
+const RUNS = [[7,17],[11,17],[14,17],[16,17],[19,17]];
+function lastRunBefore(t){ for (let k = 0; k < 5; k++){ const d0 = new Date(t.getFullYear(), t.getMonth(), t.getDate() - k); if (d0.getDay() === 0 || d0.getDay() === 6) continue;
   for (let i = RUNS.length - 1; i >= 0; i--){ const r = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate(), RUNS[i][0], RUNS[i][1]); if (r <= t) return r; } } return null; }
 function teamStale(){
   if (!TEAM || !window.__SHP_DATA || !window.__SHP_DATA.created) return false;
@@ -2992,7 +3098,7 @@ document.addEventListener("click", async ev => {
   if (ds.cslotdef) return saveSettings({cleanSlots:null}, "Standard-Reinigungstermine");
   if (ds.csamedel != null) return saveSettings({cleanSame: cleanSame().filter(n => n !== ds.csamedel)}, "Gast entfernt");
   if (ds.cleanpw){ const v = ($("#cleanPw").value || "").trim(); if (v.length < 12){ toast("Mindestens 12 Zeichen"); return; } if (!db){ toast("Nur im Online-Tool möglich"); return; }
-    if (v === S.teamPass){ toast("Bitte ein anderes Passwort als für die Team-Seite"); return; }
+    if (v === S.teamPass || (S.nfPass && v === S.nfPass)){ toast("Bitte ein anderes Passwort als für Team-Seite und Notfall-Planer"); return; }
     try { await db.doc("meta/clean").set({pass:v, set:localIso()}); toast("Passwort Reinigungsseite gespeichert – gilt ab der nächsten Aktualisierung"); } catch(e){ toast("Passwort nicht gespeichert"); } }
 });
 async function saveCleanEx(key, val, msg){ const ex = Object.assign({}, cleanEx()); if (val) ex[key] = val; else delete ex[key]; UI.cleanEdit = null; return saveSettings({cleanEx: Object.keys(ex).length ? ex : null}, msg); }
@@ -3043,7 +3149,8 @@ function cleanInit(){
    Änderungen höchstens alle 15 Minuten. meta/snapshot zeigt auf die neueste Kopie (id, at; seen = zuletzt als unverändert bestätigt); ältere Kopien (> 2 Std.) werden gelöscht.
    v137: Die Bestätigung „unverändert“ schreibt nur noch das Feld seen (update) – ein Fenster mit veraltetem Stand kann den Verweis
    nicht mehr auf eine gelöschte Kopie zurücksetzen (Fehler 06.11.2026, zwei Planer-Fenster offen). Gelöscht wird nie die Kopie, auf die meta/snapshot zeigt. */
-const SNAP_COLS = ["events","series","referents","absences"], SNAP_META = ["weeks","accepted","settings","stays","team","clean","websync"];
+/* v139: zusätzlich rounds, msgs und meta/notfall (Notfall-Planer: vollständiger Datenbestand; Passwort für build.mjs) */
+const SNAP_COLS = ["events","series","referents","absences","rounds","msgs"], SNAP_META = ["weeks","accepted","settings","stays","team","clean","websync","notfall"];
 const SNAP_GAP = 15*60e3, SNAP_SEEN = 30*60e3, SNAP_KEEP = 2*3600e3, SNAP_FORMAT = "survivors-home-datenkopie";
 const SNAP = {on:false, raw:{}, meta:{}, ok:new Set(), last:"", lastAt:0, seenAt:0, cand:"", candAt:0, busy:false, err:"", cur:null};
 function snapUse(n){ return window.claude && window.claude.use ? window.claude.use(n).catch(() => null) : Promise.resolve(null); }
@@ -3097,7 +3204,7 @@ function snapCard(){
   const c = SNAP.cur, seen = c ? (c.seen && c.seen > (c.at || "") ? c.seen : c.at) : "";
   const age = seen ? (Date.now() - new Date(seen).getTime()) / 3600e3 : null;
   const st = !c ? `<span class="lv warn">noch keine Datenkopie</span>` : `<span class="lv ${age > 24 ? "warn" : "info"}">Datenkopie vom ${esc(bkWhen(c.at))}${seen !== c.at ? `, unverändert bestätigt ${esc(bkWhen(seen))}` : ""}</span>`;
-  return `<p>Website, Team-Seite und Reinigungsseite werden aus einer Datenkopie gebaut, die dieser Planer automatisch ablegt (beim Öffnen und nach Änderungen höchstens alle 15 Minuten; ohne Änderungen bestätigt er alle 30 Minuten, dass sie aktuell ist). Die Seiten übernehmen sie beim nächsten Lauf (Mo–Fr 5, 9, 11, 13, 15, 17, 19 Uhr).</p>
+  return `<p>Website, Team-Seite, Reinigungsseite und Notfall-Planer werden aus einer Datenkopie gebaut, die dieser Planer automatisch ablegt (beim Öffnen und nach Änderungen höchstens alle 15 Minuten; ohne Änderungen bestätigt er alle 30 Minuten, dass sie aktuell ist). Die Seiten übernehmen sie beim nächsten Lauf (Mo–Fr 7, 11, 14, 16, 19 Uhr).</p>
     <p>${st}</p>${SNAP.err ? `<p><span class="lv warn">Ablegen fehlgeschlagen (${esc(SNAP.err)}) – nächster Versuch in 15 Minuten</span></p>` : ""}
     <p class="notes">${SNAP.on ? "Dieser Browser legt die Kopie ab, solange der Planer geöffnet ist." : "Ablegen können nur Bearbeiter des Planers. Änderungen von hier kommen mit, sobald ein Bearbeiter den Planer geöffnet hat."}</p>`;
 }
@@ -3125,6 +3232,7 @@ snapInit();
     sub("series","series"); sub("referents","referents"); sub("events","events"); sub("absences","absences"); sub("rounds","rounds"); sub("msgs","msgs");
     db.doc("meta/accepted").onSnapshot(snap => { S.accepted = snap.exists ? Object.assign({}, (snap.data()||{}).items||{}) : {}; render(); }, () => {});
     db.doc("meta/team").onSnapshot(snap => { const t = snap.exists ? (snap.data() || {}) : {}; S.teamPass = t.pass || ""; S.teamSet = t.set || ""; if (UI.view === "sicherung") render(); }, () => {});
+    db.doc("meta/notfall").onSnapshot(snap => { const t = snap.exists ? (snap.data() || {}) : {}; S.nfPass = t.pass || ""; S.nfSet = t.set || ""; if (UI.view === "sicherung") render(); }, () => {});
     db.doc("meta/clean").onSnapshot(snap => { const t = snap.exists ? (snap.data() || {}) : {}; S.cleanPass = t.pass || ""; S.cleanSet = t.set || ""; if (UI.view === "creinigung") render(); }, () => {});
     db.doc("meta/websync").onSnapshot(snap => { S.websync = snap.exists ? (snap.data() || {}) : null; S.wsLoaded = true; if (S.loaded) render(); }, () => {});
     db.doc("meta/settings").onSnapshot(snap => { S.settings = snap.exists ? Object.assign({}, snap.data() || {}) : {}; applySettings(); done("settings"); }, () => done("settings"));

@@ -1,23 +1,26 @@
 #!/usr/bin/env node
-/* SURVIVORS HOME – Team-Seite: verschlüsselte Daten für team/data.json, Reinigungsseite: reinigung/data.json (ab v125)
-   Aufruf: node tools/team/build.mjs <export-ordner> [team/data.json] [reinigung/data.json]
-   Liest den Datenbank-Export (wie tools/build.py) inkl. referents, meta/team.json (Team-Passwort) und meta/clean.json (Passwort Reinigungsseite).
+/* SURVIVORS HOME – Team-Seite: verschlüsselte Daten für team/data.json, Reinigungsseite: reinigung/data.json (ab v125),
+   Notfall-Planer: notfall/data.json (ab v139)
+   Aufruf: node tools/team/build.mjs <export-ordner> [team/data.json] [reinigung/data.json] [notfall/data.json]
+   Liest den Datenbank-Export (wie tools/build.py) inkl. referents, meta/team.json (Team-Passwort), meta/clean.json (Passwort Reinigungsseite)
+   und meta/notfall.json (Passwort Notfall-Planer).
    Ohne Passwort: die jeweilige Datei nicht schreiben (Seite bleibt unverändert), Exit 0.
    Verschlüsselung: PBKDF2-SHA256 (310 000 Runden) → AES-256-GCM; nur Node-Bordmittel. */
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-const [,, dir, outArg, cleanArg] = process.argv;
+const [,, dir, outArg, cleanArg, notArg] = process.argv;
 if (!dir){ console.error("Aufruf: node tools/team/build.mjs <export-ordner> [team/data.json]"); process.exit(2); }
 const ROOT = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "..");
-const out = outArg || path.join(ROOT, "team", "data.json"), cleanOut = cleanArg || path.join(ROOT, "reinigung", "data.json");
+const out = outArg || path.join(ROOT, "team", "data.json"), cleanOut = cleanArg || path.join(ROOT, "reinigung", "data.json"), notOut = notArg || path.join(ROOT, "notfall", "data.json");
 const load = col => { const d = path.join(dir, col), m = {}; if (!fs.existsSync(d)) return m;
   for (const f of fs.readdirSync(d)) { if (!f.endsWith(".json")) continue; let o = JSON.parse(fs.readFileSync(path.join(d, f), "utf8"));
     if (o && typeof o.data === "object" && o.data) o = o.data; const id = f.slice(0, -5); m[id] = Object.assign({}, o, {id}); } return m; };
 const events = load("events"), series = load("series"), absences = load("absences"), referentsRaw = load("referents"), meta = load("meta");
-const pass = ((meta.team || {}).pass || "").trim(), cleanPass = ((meta.clean || {}).pass || "").trim();
-if (!pass && !cleanPass){ console.log("Team-Seite und Reinigungsseite: kein Passwort gesetzt – unverändert."); process.exit(0); }
+const rounds = load("rounds"), msgs = load("msgs"); /* ab Planer v139 in der Datenkopie, sonst leer */
+const pass = ((meta.team || {}).pass || "").trim(), cleanPass = ((meta.clean || {}).pass || "").trim(), notPass = ((meta.notfall || {}).pass || "").trim();
+if (!pass && !cleanPass && !notPass){ console.log("Team-Seite, Reinigungsseite und Notfall-Planer: kein Passwort gesetzt – unverändert."); process.exit(0); }
 if (!Object.keys(events).length || !Object.keys(series).length){ console.error("Abbruch: Export ohne Termine oder Reihen – Team-Seite und Reinigungsseite unverändert."); process.exit(1); }
 if (pass && cleanPass && pass === cleanPass){ console.error("Abbruch: Reinigungsseite und Team-Seite haben dasselbe Passwort – bitte im Planer ändern. Beide Seiten unverändert."); process.exit(1); }
 /* Datensparsam: Kontaktdaten und Freitext der Referenten entfernen (für Prüfregeln reichen Name und Verfügbarkeiten) */
@@ -65,3 +68,20 @@ if (cleanPass){
   seal(cleanPass, clean, cleanOut);
   console.log(`${cleanOut}: Reinigungsseite ${Object.keys(cItems).length} Übernachtungen, ${Object.keys(cEv).length} Termine mit Küchenreinigung, Stand ${created}`);
 } else console.log("Reinigungsseite: kein Passwort gesetzt – unverändert.");
+
+
+/* v139 Notfall-Planer (Sebastian 06.11.2026): vollständiger Datenbestand (inkl. Referenten-Kontakten, Anfrage-Runden, Nachrichten)
+   für den Fall, dass der Planer in Claude nicht erreichbar ist. Eigenes Passwort (nur Bearbeiter), nie gleich Team-/Reinigungs-Passwort.
+   Ohne Passwörter (meta/team, meta/clean, meta/notfall) und ohne meta/snapshot. Wird als Ausgangsstand („base“) für das spätere Einspielen genutzt. */
+if (notPass && (notPass === pass || notPass === cleanPass)){
+  console.log("Notfall-Planer: Passwort gleich wie Team- oder Reinigungsseite – nicht erzeugt (bitte im Planer ändern).");
+} else if (notPass){
+  const clip = o => Object.fromEntries(Object.entries(o || {}).filter(([k]) => k !== "id"));
+  const nb = {format:"survivors-home-programmplaner-backup", version:1, created, source:"notfall",
+    collections:{events, series, referents:referentsRaw, absences, rounds, msgs},
+    meta:{accepted:{items:(meta.accepted || {}).items || {}}, weeks:{status:(meta.weeks || {}).status || {}}, ...(settings ? {settings} : {}),
+      ...(meta.stays ? {stays:{items:meta.stays.items || {}, fairs:meta.stays.fairs || {}}} : {}),
+      ...(meta.websync ? {websync:clip(meta.websync)} : {})}};
+  seal(notPass, nb, notOut);
+  console.log(`${notOut}: Notfall-Planer ${Object.keys(events).length} Termine, ${Object.keys(referentsRaw).length} Referenten, ${Object.keys(msgs).length} Nachrichten, Stand ${created}`);
+} else console.log("Notfall-Planer: kein Passwort gesetzt – unverändert.");
