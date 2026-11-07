@@ -442,7 +442,9 @@ h3.sh{font-family:var(--f-display);font-size:1rem;margin:18px 0 8px;color:var(--
 .blk.st-anf{background:repeating-linear-gradient(135deg,color-mix(in srgb, var(--c) 58%, var(--paper)) 0 6px,color-mix(in srgb, var(--c) 38%, var(--paper)) 6px 12px)!important;border:1.5px solid var(--c);color:var(--ink)!important}
 .blk.st-fix{box-shadow:inset 0 0 0 2px #fff,inset 0 0 0 3px var(--c)}
 .blk.st-abg{background:var(--surface-2)!important;color:var(--muted)!important;text-decoration:line-through}
-.blk .smk{position:absolute;right:3px;top:2px;font-size:.5rem;font-weight:800;background:#fff;color:#3c3c3b;border-radius:6px;padding:0 4px;line-height:1.5}
+.blk .smk{position:absolute;right:3px;top:3px;width:9px;height:9px;box-sizing:border-box;border-radius:50%;border:1.5px solid #fff;box-shadow:0 0 0 .5px rgba(0,0,0,.25)}
+.blk .smk.ok{background:#2e9e4f}
+.blk .smk.wp{background:#f2c200}
 .blk .dlb{position:absolute;right:3px;bottom:2px;font-size:.5rem;font-weight:800;color:#fff;border-radius:6px;padding:0 4px;line-height:1.5}
 .blk .dlb.warn{background:#e8a200} .blk .dlb.err{background:#e5322d}
 /* Jahresraster: Fristen-Zustand je Tag/Woche, Vergangenheit */
@@ -757,6 +759,9 @@ body.team [data-mobon]{display:none!important}
 /* v121 Übernachtungen (Dachgeschoss) und Messen: grau, vorgemerkt blass gestrichelt */
 .stay{position:absolute;top:3px;bottom:3px;z-index:0;border-radius:4px;padding:2px 6px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:.74rem;line-height:1.35;font-weight:700;text-align:left;border:0;background:#8a8a89;color:#fff;cursor:pointer;font-family:inherit}
 .stay small{font-family:var(--f-mono);font-weight:400;opacity:.9;margin-right:4px}
+/* v140: Übernachtungen in der Wochen-/Tagesansicht so groß wie die Uhrzeit der Termine, fett (Sebastian 07.11.2026) */
+.wgrid:not(.mob) .stay,.wgrid:not(.mob) .stay.vm,.wgrid:not(.mob) .stay small,.wgrid:not(.mob) .stlab{font-size:.56rem;font-weight:700}
+.wgrid:not(.mob) .stay{line-height:1.6}
 .bed{width:1.1em;height:1.1em;vertical-align:-.18em;margin-right:4px;flex:none;display:inline-block}
 .sti .bed{width:11px;height:11px;margin:0;vertical-align:0}
 .vstay .vt{display:flex;align-items:center;gap:2px}
@@ -766,7 +771,7 @@ div.stay{cursor:default}
 .stay.vm{background:repeating-linear-gradient(135deg,color-mix(in srgb,#8a8a89 30%,var(--paper)) 0 6px,color-mix(in srgb,#8a8a89 16%,var(--paper)) 6px 12px);border:1.5px dashed #8a8a89;color:var(--ink);font-weight:500}
 .stay.bad{outline:2px solid var(--err);outline-offset:-1px}
 .mob .stay{font-size:.6rem;padding:2px 4px;line-height:1.1}
-.fairm{position:absolute;inset:0;z-index:0;display:flex;align-items:flex-end;justify-content:flex-end;padding:0 4px 1px;font-size:.58rem;color:var(--muted);font-style:italic;background:repeating-linear-gradient(90deg,transparent 0 10px,color-mix(in srgb,var(--muted) 7%,transparent) 10px 20px);pointer-events:auto;overflow:hidden;white-space:nowrap}
+.fairm{position:absolute;inset:0;z-index:0;display:flex;align-items:flex-end;justify-content:flex-end;padding:0 4px 1px;font-size:.58rem;color:color-mix(in srgb,var(--muted) 65%,var(--paper));font-style:italic;background:repeating-linear-gradient(90deg,transparent 0 10px,color-mix(in srgb,var(--muted) 7%,transparent) 10px 20px);pointer-events:auto;overflow:hidden;white-space:nowrap}
 .sti{display:inline-grid;place-items:center;min-width:15px;height:15px;padding:0 2px;border-radius:3px;margin-left:3px;font-size:.6rem;font-weight:700;line-height:1;background:#8a8a89;color:#fff;font-family:var(--f-body)}
 .sti.vm{background:transparent;color:#6f6f6e;border:1px dashed #8a8a89}
 .stb{display:inline-block;padding:1px 7px;border-radius:999px;font-size:.78rem;background:#8a8a89;color:#fff}
@@ -920,7 +925,7 @@ details.pastl summary{cursor:pointer;color:var(--muted)}
   function start(data){
     window.__SHP_OFFLINE = true; window.__SHP_TEAM = true; window.__SHP_DATA = data;
     document.getElementById("lock").hidden = true;
-    const s = document.createElement("script"); s.src = "app.js?v=139"; document.body.appendChild(s);
+    const s = document.createElement("script"); s.src = "app.js?v=140"; document.body.appendChild(s);
   }
   async function tryPw(pw, remember){ try { const d = await open(pw); if (remember){ try { localStorage.setItem(KEY, pw); } catch(e){} } start(d); return true; } catch(e){ return false; } }
   document.getElementById("lkf").addEventListener("submit", async ev => { ev.preventDefault(); const pw = document.getElementById("lkpw").value; if (!(await tryPw(pw, true))) show(true); });
