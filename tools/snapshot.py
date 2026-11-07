@@ -7,7 +7,7 @@ die Routine holt sie mit dem Artifact-Werkzeug (action read, path = Kopie-ID) un
 
 Aufrufe:
   python3 tools/snapshot.py unpack <kopie.json> <export-ordner> [--seen JJJJ-MM-TTTHH:MM]
-      schreibt <export>/events/<id>.json, series/, referents/, absences/, meta/<name>.json (nur der Inhalt, wie bisher
+      schreibt <export>/events/<id>.json, series/, referents/, absences/, ab v139 auch rounds/, msgs/, meta/<name>.json (nur der Inhalt, wie bisher
       "data") und <export>/STAND (Zeitpunkt der Kopie; build.py und build.mjs zeigen ihn als Stand).
       --seen: Feld "seen" aus meta/snapshot (Planer hat die Kopie zu diesem Zeitpunkt als unverändert bestätigt);
       STAND ist dann der spätere der beiden Zeitpunkte.
@@ -22,6 +22,7 @@ import json, os, sys, shutil
 
 FORMAT = "survivors-home-datenkopie"
 COLS = ("events", "series", "referents", "absences")
+OPT_COLS = ("rounds", "msgs")  # ab Planer v139 in der Datenkopie (für den Notfall-Planer); ältere Kopien ohne
 
 
 def die(msg):
@@ -58,6 +59,10 @@ def unpack(src, out, seen=""):
             if safe_id(i) and isinstance(d, dict):
                 wjson(os.path.join(out, c, i + ".json"), d)
         n[c] = len(docs)
+    for c in OPT_COLS:
+        for i, d in (cols.get(c) or {}).items():
+            if safe_id(i) and isinstance(d, dict):
+                wjson(os.path.join(out, c, i + ".json"), d)
     for name, d in meta.items():
         if safe_id(name) and isinstance(d, dict):
             wjson(os.path.join(out, "meta", name + ".json"), d)
